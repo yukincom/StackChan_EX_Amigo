@@ -74,7 +74,7 @@ cp -r server/json_example server/json
 - `ffmpeg`
 - `kokoro`
 - `Basic-Memory`
-　- https://github.com/basicmachines-co/basic-memory
+　-> https://github.com/basicmachines-co/basic-memory
 
 構成に応じて使用:
 
