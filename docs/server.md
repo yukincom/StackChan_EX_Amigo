@@ -150,6 +150,8 @@ Config UI は次の URL で開けます。
 http://(serverのIPアドレス):5050/admin
 ```
 
+![config画面](https://github.com/yukincom/StackChan_EX_Amigo/blob/main/images/configUI.png)
+
 日常的な調整は、基本的にこのConfig UI から行います。主に触るのは次の項目です。
 
 - アシスタント名
