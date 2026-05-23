@@ -41,8 +41,11 @@ Amigo版では、会話・Vision・ログ運用・Config UI の中心は `server
 まず、サンプルの名称変更をしてください。
 
 - `server/json_example/` → `server/json/`
-
 - `.env.example` → `~/env/.env`
+
+today.mdは以下のディレクトリに移動してください。
+
+- `~/basic-memory/`
 
 その後、`http://(serverのIPアドレス):5050/admin`にて`~/env/.env` の内容を自分の環境に合わせて編集してください。
 
