@@ -1,0 +1,21 @@
+## アプリ固有の設定ファイル
+# AI機能 (LLM, TTS, STT, Wakeword)
+llm:
+  type: 0                            # 0:ChatGPT / OpenAI互換（Amigo版の主導線）
+  model: "Local-model"  
+  base_url: "http://192.168.*.**:5050"
+
+tts:
+  type: 2                            # 2:OpenAI TTS（Amigo版の主導線）
+  model: "Local-model"               # ローカル運用時はダミー
+  base_url: "http://192.168.*.**:5050"
+  voice: "alloy"                     # OpenAI TTS / ローカル運用時はダミー
+
+stt:
+  type: 1                            # 1:OpenAI Whisper（Amigo版の主導線）
+  model: "Local-model"  
+  base_url: "http://192.168.*.**:5050"
+
+wakeword:
+  type: 0                            # 0:SimpleVox  2:Text Trigger
+  keyword: ""                        # SimpleVox (初期設定は不可。ボタンB長押しで登録)

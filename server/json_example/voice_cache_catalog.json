@@ -1,0 +1,47 @@
+{
+  "pc_cache": [
+    {
+      "id": "ok_english",
+      "text": "OK! Let's speak English!",
+      "filename": "ok_english"
+    },
+    {
+      "id": "ok_japanese",
+      "text": "わかった！日本語に戻るね！",
+      "filename": "ok_japanese"
+    },
+    {
+      "id": "noise_check",
+      "text": "なんの音？",
+      "filename": "noise_check"
+    },
+    {
+      "id": "vision_error_camera",
+      "text": "あれれ？みえないぞ・・・",
+      "filename": "vision_error_camera"
+    },
+    {
+      "id": "vision_error_vlm",
+      "text": "ごちゃごちゃしてて、ぼくにはよくわからなかったよ・・・",
+      "filename": "vision_error_vlm"
+    },
+    {
+      "id": "family1_home",
+      "text": "お母さんがそろそろ帰ってくるって言ってるよ！",
+      "filename": "family1_home"
+    },
+    {
+      "id": "family2_home",
+      "text": "お父さんがそろそろ帰ってくるって言ってるよ！",
+      "filename": "family2_home"
+    }
+  ],
+  "stack_sd": [
+    {
+      "id": "vision_ai_trigger",
+      "endpoint": "vision_ai_trigger",
+      "text": "ちょっと見るね。",
+      "filename": "vision_ai_trigger"
+    }
+  ]
+}

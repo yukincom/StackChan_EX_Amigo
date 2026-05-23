@@ -1,0 +1,30 @@
+[
+  {
+    "hour": 7,
+    "message": "そろそろ出かける時間だよ！準備はできたかな？",
+    "minute": 25,
+    "weekday_only": true,
+    "with_weather": true
+  },
+  {
+    "hour": 14,
+    "message": "ねえねえ、そろそろおやつの時間なんじゃない？",
+    "minute": 0,
+    "weekday_only": false,
+    "with_weather": false
+  },
+  {
+    "hour": 18,
+    "message": "そろそろ、夕ごはんの時間だね！今日のメニューはなにかな？",
+    "minute": 10,
+    "weekday_only": false,
+    "with_weather": false
+  },
+  {
+    "hour": 19,
+    "message": "もうご飯は済んだかな？そろそろ、おふろの時間だよ〜！",
+    "minute": 0,
+    "weekday_only": false,
+    "with_weather": false
+  }
+]

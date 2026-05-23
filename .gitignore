@@ -1,0 +1,44 @@
+# StackChan_EX_Amigo root .gitignore
+# monorepo layout:
+# - firmware/
+# - server/
+# - Copy-to-SD/
+# - docs/
+# - scripts/
+# macOS
+.DS_Store
+# Editors
+.vscode/
+# Python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+# Virtualenv
+.venv/
+venv/
+server/.venv/
+server/venv/
+# Environment / secrets
+.env
+.env.local
+.env.*
+!.env.example
+.env.keys
+# Server private/local data
+server/json/
+server/memory/
+server/archive/
+server/songs/
+server/whisper.cpp/
+server/voice-MCP/
+# Generated voice/cache files
+/tmp/voice_gen_store/
+# PlatformIO / firmware build artifacts
+firmware/.pio/
+firmware/.vscode/
+firmware/lib/aquestalk/
+firmware/data/
+# Optional local notes / scratch
+*.log
