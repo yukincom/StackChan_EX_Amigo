@@ -74,6 +74,7 @@ cp -r server/json_example server/json
 - `ffmpeg`
 - `kokoro`
 - `Basic-Memory`
+　-> https://github.com/basicmachines-co/basic-memory
 
 構成に応じて使用:
 
@@ -138,3 +139,4 @@ AI 発カメラ起動も、ここで設定するキーワードや AI 設定に�
 - 当プロジェクトでは自宅 `server` の外部公開は推奨していません
 - 外出先での API 直結運用や単体運用は各自、必要に合わせて再構成してください。
 - Vision / カメラ連携は CoreS3 前提です
+- `CoreS3` のみ動作確認をしています。
