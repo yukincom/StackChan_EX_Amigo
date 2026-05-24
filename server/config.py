@@ -17,6 +17,16 @@ def _csv_env(key: str, default: str) -> list[str]:
     return [item.strip() for item in os.getenv(key, default).split(",") if item.strip()]
 
 
+def _int_env(key: str, default: int) -> int:
+    raw = os.getenv(key, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 def _path_env(key: str, default: Path) -> str:
     raw = os.getenv(key, "").strip()
     path = Path(raw).expanduser() if raw else default
@@ -44,8 +54,9 @@ class Config:
     ).split(",")
 
     # AI出力設定
-    AI_MAX_OUTPUT_TOKENS = int(os.getenv("AI_MAX_OUTPUT_TOKENS", "1200"))
-    AI_RECENT_TURNS              = int(os.getenv("AI_RECENT_TURNS", "5"))
+    AI_MAX_OUTPUT_TOKENS = _int_env("AI_MAX_OUTPUT_TOKENS", 1200)
+    AI_RECENT_TURNS = _int_env("AI_RECENT_TURNS", 5)
+    AI_SEARCH_RECENT_TURNS = _int_env("AI_SEARCH_RECENT_TURNS", 1)
     
     # 用途別temperature
     AI_CHAT_TEMPERATURE    = float(os.getenv("AI_CHAT_TEMPERATURE",    "0.8"))  # 会話：豊か目に

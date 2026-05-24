@@ -288,7 +288,8 @@ AI_ENV_GROUPS = [
         "group": "🔢 生成パラメータ",
         "items": [
             {"key": "AI_MAX_OUTPUT_TOKENS",   "label": "最大出力トークン数",                        "type": "number"},
-            {"key": "AI_RECENT_TURNS",        "label": "会話記憶ターン数（推奨：10未満）",           "type": "number"},
+            {"key": "AI_RECENT_TURNS",        "label": "通常会話の記憶ターン数（推奨：10未満）",      "type": "number"},
+            {"key": "AI_SEARCH_RECENT_TURNS", "label": "Google検索へ送る総ターン数（1=今回の入力だけ）", "type": "number", "default": "1"},
             {"key": "AI_CHAT_TEMPERATURE",    "label": "会話 Temperature（豊かさ・デフォルト 0.8）", "type": "number"},
             {"key": "AI_SUMMARY_TEMPERATURE", "label": "要約 Temperature（正確さ・デフォルト 0.3）", "type": "number"},
             {"key": "AI_SEARCH_TEMPERATURE",  "label": "検索 Temperature（正確さ・デフォルト 0.3）", "type": "number"},
@@ -342,7 +343,11 @@ def _write_dotenv(path: Path, updates: dict[str, str]):
 def _build_env_response(groups):
     result = []
     for group in groups:
-        items = [{**item, "value": os.getenv(item["key"], "")} for item in group["items"]]
+        items = []
+        for item in group["items"]:
+            key = item.get("key", "")
+            value = os.getenv(key, item.get("default", "")) if key else ""
+            items.append({**item, "value": value})
         result.append({"group": group["group"], "items": items})
     return result
 
