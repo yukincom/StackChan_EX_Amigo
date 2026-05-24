@@ -57,6 +57,15 @@ class RobotMemory:
 
     def get_recent_conversations(self, limit=None):
         """today.mdから最近の会話を取得（speaker引数は互換性のために残すが使わない）"""
+        if limit is not None:
+            try:
+                limit = int(limit)
+            except (TypeError, ValueError):
+                limit = None
+            else:
+                if limit <= 0:
+                    return []
+
         content = self._read("today")
         if not content:
             return []
@@ -92,12 +101,12 @@ class RobotMemory:
                     "assistant": ai_text,
                 })
 
-        return conversations[-limit:] if limit else conversations
+        return conversations[-limit:] if limit is not None else conversations
 
     # ─────────────────────────────
     # コンテキスト取得（AI呼び出し用）
     # ─────────────────────────────
-    def get_context(self, query=None):
+    def get_context(self, query=None, recent_turns=None):
         """AI呼び出し用のコンテキストを構築"""
         today_md = self._read("today") 
 
@@ -120,7 +129,8 @@ class RobotMemory:
             if name:
                 family[name] = member.get("notes", "")
 
-        recent = self.get_recent_conversations(limit=config.AI_RECENT_TURNS)
+        recent_limit = config.AI_RECENT_TURNS if recent_turns is None else recent_turns
+        recent = self.get_recent_conversations(limit=recent_limit)
 
         game_text = self._extract_section(today_md, "ゲーム進行")
         game_progress = []

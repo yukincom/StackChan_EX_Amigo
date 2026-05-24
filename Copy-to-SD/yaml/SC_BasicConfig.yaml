@@ -32,7 +32,7 @@ bluetooth:
   start_volume: 100
 auto_power_off_time: 0 # Core2 Only. time(msec) of auto power off(0 is disable.)
 balloon: 
-  font_language: "CN" # "JA or CN or Default"
+  font_language: "JA" # "JA or CN or Default"
   lyrics: # A maximum of 10 can be specified.
   - "こんにちは"
   - "Hello"

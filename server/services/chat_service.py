@@ -8,7 +8,7 @@ import time
 import requests
 
 from config import config
-from ai_handler import get_ai_response, detect_intent, set_english_mode
+from ai_handler import detect_intent, get_ai_response, needs_search, set_english_mode
 from services.voice_cache_catalog import get_pc_cache_text
 from services.voice_service import generate_voice_mixed, push_to_m5stack
 from services.weather_service import get_weather_response
@@ -150,6 +150,15 @@ def _detect_weather_target(user_text: str) -> str | None:
     if any(token in text for token in ["明日", "あした", "あす"]) or "tomorrow" in lower_text:
         return "tomorrow"
     return "today"
+
+
+def _recent_turns_for_ai_context(user_text: str) -> int:
+    if not needs_search(user_text):
+        return config.AI_RECENT_TURNS
+
+    # 検索時の設定値は「今回の入力」を含む総ターン数として扱う。
+    total_turns = max(1, config.AI_SEARCH_RECENT_TURNS)
+    return max(total_turns - 1, 0)
 
 
 def _camera_trigger_result(
@@ -341,7 +350,10 @@ def process_chat(user_text, speaker="master", generate_voice_flag=False, speaker
     try:
         mode = intent if intent == "english_reply" else "normal"
         memory      = RobotMemory()
-        context     = memory.get_context(query=user_text)
+        context     = memory.get_context(
+            query=user_text,
+            recent_turns=_recent_turns_for_ai_context(user_text),
+        )
         ai_response = get_ai_response(user_text, context, speaker, mode=mode)
         cleaned_response, ai_camera_mode = _extract_ai_camera_mode(ai_response)
 
