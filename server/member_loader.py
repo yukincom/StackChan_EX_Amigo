@@ -8,6 +8,7 @@ _MEMBER_JSON_PATH = Path(__file__).resolve().parent / "json" / "member.json"
 MASTER_LABEL = "マスター"
 MASTER_MASK_LABEL = "[マスター]"
 OTHER_LABEL = "その他"
+_FULLWIDTH_DIGITS = str.maketrans("0123456789", "０１２３４５６７８９")
 
 
 def _default_master() -> dict:
@@ -67,6 +68,25 @@ def get_primary_call(member: dict) -> str:
     """call の最初の1つを返す（通知メッセージ等で使う表示名）"""
     call = member.get("call", "")
     return call[0] if isinstance(call, list) else call
+
+
+def _to_fullwidth_digits(text: str) -> str:
+    return str(text).translate(_FULLWIDTH_DIGITS)
+
+
+def _label_variants(label: str) -> list[str]:
+    """ラベルの揺れを吸収するための候補を返す"""
+    bare = label.removeprefix("[").removesuffix("]")
+    bare_fullwidth = _to_fullwidth_digits(bare)
+    variants = {
+        label,
+        bare,
+        f"[{bare_fullwidth}]",
+        f"［{bare}］",
+        f"［{bare_fullwidth}］",
+        bare_fullwidth,
+    }
+    return [variant for variant in variants if variant]
 
 
 def find_by_user_id(user_id: str, data: dict | None = None) -> dict | None:
@@ -162,16 +182,18 @@ def get_unmask_replacements(data: dict | None = None) -> dict:
     rep = {}
     master_name = get_primary_name(master)
     if master_name:
-        rep[MASTER_MASK_LABEL] = master_name
-        rep[MASTER_LABEL] = master_name
+        for label in _label_variants(MASTER_MASK_LABEL):
+            rep[label] = master_name
     for i, member in enumerate(family, 1):
         name = get_primary_call(member) or get_primary_name(member)
         if name:
-            rep[f"[家族{i}]"] = name
+            for label in _label_variants(f"[家族{i}]"):
+                rep[label] = name
     for i, friend in enumerate(friends, 1):
         name = friend.get("name", "")
         if name and name != "友達の呼び名":
-            rep[f"[友達{i}]"] = name
+            for label in _label_variants(f"[友達{i}]"):
+                rep[label] = name
     return rep
 
 
@@ -215,6 +237,7 @@ def mask_names(text: str, data: dict | None = None) -> str:
 def unmask_names(text: str, data: dict | None = None) -> str:
     """ラベルを元の名前に戻す"""
     text = re.sub(r"\[/?section\]", "", text, flags=re.IGNORECASE)
-    for label, name in get_unmask_replacements(data).items():
-        text = text.replace(label, name)
+    replacements = get_unmask_replacements(data)
+    for label in sorted({label for label in replacements if label}, key=len, reverse=True):
+        text = text.replace(label, replacements[label])
     return text
