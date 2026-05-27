@@ -13,6 +13,8 @@ from member_loader import (
 )
 import llm_client
 
+SEARCH_ASSISTANT_MASK_LABEL = "[アシスタント]"
+
 def needs_search(text):
     """検索キーワードを含む発話はWeb検索を使う"""
     return any(kw in text for kw in config.SEARCH_KEYWORDS)
@@ -55,6 +57,40 @@ def set_english_mode(active: bool):
 def is_english_mode() -> bool:
     return _english_mode["active"]
 
+
+def _to_hira(s: str) -> str:
+    return ''.join(
+        chr(ord(c) - 0x60) if 'ァ' <= c <= 'ン' else c
+        for c in s
+    )
+
+
+def _assistant_aliases() -> list[str]:
+    return [name.strip() for name in str(config.ASSISTANT_NAME).split(",") if name.strip()]
+
+
+def _primary_assistant_name() -> str:
+    aliases = _assistant_aliases()
+    if aliases:
+        return aliases[0]
+    return str(config.ASSISTANT_NAME).strip()
+
+
+def _mask_prompt_text(text: str, mask_assistant_name: bool = False) -> str:
+    masked = mask_names(text or "")
+    if not mask_assistant_name:
+        return masked
+
+    replacements = {}
+    for name in _assistant_aliases():
+        replacements[name] = SEARCH_ASSISTANT_MASK_LABEL
+        replacements[_to_hira(name)] = SEARCH_ASSISTANT_MASK_LABEL
+
+    for name in sorted({n for n in replacements if n}, key=len, reverse=True):
+        masked = masked.replace(name, replacements[name])
+    return masked
+
+
 def _remove_katakana_reading(text: str) -> str:
     """「英単語」の後に続くカタカナ読みを除去する"""
     # 「発音は〜って感じ」パターンを除去
@@ -65,24 +101,37 @@ def _remove_katakana_reading(text: str) -> str:
 
 def get_ai_response(user_text, context, speaker, mode="normal"):
     """AIで応答生成（llm_client経由・プロバイダー切り替え対応）"""
+    search_mode = needs_search(user_text)
+    assistant_name_for_prompt = SEARCH_ASSISTANT_MASK_LABEL if search_mode else config.ASSISTANT_NAME
+    persona_text = _mask_prompt_text(context.get('persona', ''), mask_assistant_name=search_mode)
+    assistant_persona_text = _mask_prompt_text(config.ASSISTANT_PERSONA, mask_assistant_name=search_mode)
+
     # ★ AIに渡す前に名前をマスク
-    masked_text = mask_names(user_text)
+    masked_text = _mask_prompt_text(user_text, mask_assistant_name=search_mode)
 
     recent_text = ""
     for conv in context.get("recent_conversations", []):
-        recent_text += f"  {mask_names(conv['user'])} → {mask_names(conv['assistant'])}\n"
+        recent_text += (
+            f"  {_mask_prompt_text(conv['user'], mask_assistant_name=search_mode)}"
+            f" → {_mask_prompt_text(conv['assistant'], mask_assistant_name=search_mode)}\n"
+        )
 
     # ★ 家族構成もマスク
     family_text = chr(10).join(
-        f"- {mask_names(name)}: {role}"
+        f"- {_mask_prompt_text(name, mask_assistant_name=search_mode)}:"
+        f" {_mask_prompt_text(role, mask_assistant_name=search_mode)}"
         for name, role in context.get('family', {}).items()
     )
-    notes_text = mask_names(context.get('notes', '注釈なし'))
+    notes_text = _mask_prompt_text(context.get('notes', '注釈なし'), mask_assistant_name=search_mode)
+    interests_text = _mask_prompt_text(context.get('interests', ''), mask_assistant_name=search_mode)
     game_text = ""
     for game in context.get("game_progress", []):
-        game_text += f"  {game['game_name']}: {game['progress']}\n"
+        game_text += (
+            f"  {_mask_prompt_text(game['game_name'], mask_assistant_name=search_mode)}:"
+            f" {_mask_prompt_text(game['progress'], mask_assistant_name=search_mode)}\n"
+        )
 
-    if needs_search(user_text):
+    if search_mode:
         sentence_rule = "- 回答は検索結果の内容を優先してね！3〜4文、150文字程度でまとめてね！"
     else:
         sentence_rule = "- 2文程度、50文字以内でまとめてね！"
@@ -111,7 +160,7 @@ def get_ai_response(user_text, context, speaker, mode="normal"):
     )
 
     prompt = f"""
-    あなたの名前は「{config.ASSISTANT_NAME}」。{context.get('persona', '')} {config.ASSISTANT_PERSONA}
+    あなたの名前は「{assistant_name_for_prompt}」。{persona_text} {assistant_persona_text}
 
 # 家族構成
 {family_text} 
@@ -141,7 +190,7 @@ def get_ai_response(user_text, context, speaker, mode="normal"):
 - 直近、５件程度の出力に「お」とか「あ」のような感嘆がある場合は、感嘆を入れないようにしてね。
 - 「最近の会話」を参照し、話題が続いている場合はそれまでの文脈を踏まえて返答する
 - 以下の「好きなもの」に関するキーワードが出たら、前の文脈と自然に繋げる
-  {context.get('interests', '')}
+  {interests_text}
 - わからないことは必要以上に想像で補わず、「わからないなー」と正直に回答してください。
 - 「おはよう」等の挨拶は、された時だけ返してね！
 - 「〜だよ」「〜だな」「〜じゃない？」など親しみやすい口調
@@ -162,11 +211,13 @@ def get_ai_response(user_text, context, speaker, mode="normal"):
 ユーザー: {masked_text} 
 アシスタント: """
     try:
-        if needs_search(user_text):
+        if search_mode:
             raw = llm_client.call_search(prompt)
         else:
             raw = llm_client.call(prompt)
         ai_text = unmask_names(raw)
+        if search_mode:
+            ai_text = ai_text.replace(SEARCH_ASSISTANT_MASK_LABEL, _primary_assistant_name())
         ai_text = _remove_katakana_reading(ai_text)
         return ai_text
     except Exception as e:
