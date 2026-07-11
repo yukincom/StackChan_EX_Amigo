@@ -11,6 +11,7 @@ from pathlib import Path
 import requests
 
 from config import config
+from path_safety import resolve_under, safe_id
 
 CATALOG_PATH = Path(__file__).resolve().parent.parent / "json" / "voice_cache_catalog.json"
 EXAMPLE_CATALOG_PATH = Path(__file__).resolve().parent.parent / "json_example" / "voice_cache_catalog.json"
@@ -56,13 +57,17 @@ def save_catalog(data: dict) -> dict:
 
 
 def get_pc_cache_audio_path(filename: str) -> Path:
-    safe = filename.strip()
-    return Path(config.PC_CACHE_AUDIO_DIR).expanduser() / f"{safe}.mp3"
+    name = safe_id(filename)
+    if not name:
+        raise ValueError(f"invalid cache filename: {filename!r}")
+    return resolve_under(config.PC_CACHE_AUDIO_DIR, f"{name}.mp3")
 
 
 def get_stack_sd_audio_path(filename: str) -> Path:
-    safe = filename.strip()
-    return Path(config.STACK_SD_AUDIO_DIR).expanduser() / f"{safe}.mp3"
+    name = safe_id(filename)
+    if not name:
+        raise ValueError(f"invalid cache filename: {filename!r}")
+    return resolve_under(config.STACK_SD_AUDIO_DIR, f"{name}.mp3")
 
 
 def get_pc_cache_text(item_id: str, default: str = "") -> str:

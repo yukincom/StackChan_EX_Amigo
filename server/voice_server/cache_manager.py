@@ -13,6 +13,7 @@ VOICE_STORAGE_DIR = str(Path(config.VOICE_STORAGE_DIR).expanduser())
 
 
 def get_cache_path(key: str) -> str:
+    """不正キーは ValueError（呼び出し側で 400 にする）。"""
     return str(get_pc_cache_audio_path(key))
 
 
@@ -27,7 +28,10 @@ def check_cache(text: str) -> dict | None:
         if normalize_text(phrase) != normalized_text:
             continue
 
-        cache_path = Path(get_cache_path(filename))
+        try:
+            cache_path = Path(get_cache_path(filename))
+        except ValueError:
+            continue
         if not cache_path.exists():
             return None
 

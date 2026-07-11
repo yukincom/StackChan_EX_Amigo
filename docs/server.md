@@ -65,6 +65,11 @@ ADMIN_TOKEN=your-long-random-token
 - `ADMIN_TOKEN` 未設定のときは **localhost からのみ** API が使えます（LAN 上の他端末からは 401）
 - password 型の設定（API キー等）は GET で生値を返しません。空のまま保存すると「変更なし」です
 
+#### 音声 proxy / ファイルパスの制限
+
+- `/audio/proxy.mp3?src=` は **SSRF 防止**のため、`VOICE_SERVER_URL` と同じ host（および localhost）の `http` で、path が `/voice/` または `/song/` のものだけ許可します
+- キャッシュ音声・song・voice_id は英数字と `._-` のみ。`../` などのパストラバーサルは拒否します
+
 ### 3.2. 外部依存
 
 構成に応じて、次の外部依存を別途用意します。

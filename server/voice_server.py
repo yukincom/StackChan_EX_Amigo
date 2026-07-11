@@ -20,6 +20,7 @@ from voice_server.tts_kokoro import (
     KOKORO_VOICE_ENGLISH,
 )
 from voice_server.cache_manager import check_cache, VOICE_STORAGE_DIR, get_cache_path
+from path_safety import resolve_under, safe_id, safe_voice_id
 
 _ENV_DIR = Path.home() / "env"
 load_dotenv(_ENV_DIR / ".env")
@@ -207,26 +208,45 @@ def generate_mixed():
 # ── ファイル配信系 ───────────────────────────────────────
 @app.route("/voice/<voice_id>", methods=["GET"])
 def get_voice(voice_id):
-    if voice_id.startswith("cache_"):
-        cache_path = get_cache_path(voice_id.replace("cache_", "", 1))
+    vid = safe_voice_id(voice_id)
+    if not vid:
+        return jsonify({"success": False, "error": "invalid voice_id"}), 400
+
+    if vid.startswith("cache_"):
+        cache_key = vid.replace("cache_", "", 1)
+        try:
+            cache_path = get_cache_path(cache_key)
+        except ValueError:
+            return jsonify({"success": False, "error": "invalid cache key"}), 400
         if os.path.exists(cache_path):
             return send_file(cache_path, mimetype="audio/mpeg", as_attachment=True, download_name="voice.mp3")
-
-    wav_path = os.path.join(VOICE_STORAGE_DIR, f"{voice_id}.wav")
-    if not os.path.exists(wav_path):
         return jsonify({"success": False, "error": "voice not found"}), 404
 
-    print(f"[📤] 音声配信: {voice_id}")
-    return send_file(wav_path, mimetype="audio/wav", as_attachment=True, download_name="voice.wav")
+    try:
+        wav_path = resolve_under(VOICE_STORAGE_DIR, f"{vid}.wav")
+    except ValueError:
+        return jsonify({"success": False, "error": "invalid voice_id"}), 400
+
+    if not wav_path.is_file():
+        return jsonify({"success": False, "error": "voice not found"}), 404
+
+    print(f"[📤] 音声配信: {vid}")
+    return send_file(str(wav_path), mimetype="audio/wav", as_attachment=True, download_name="voice.wav")
 
 
 @app.route("/song/<song_name>", methods=["GET"])
 def get_song(song_name):
-    wav_path = os.path.join(SONGS_DIR, f"{song_name}.wav")
-    if not os.path.exists(wav_path):
+    name = safe_id(song_name)
+    if not name:
+        return jsonify({"success": False, "error": "invalid song_name"}), 400
+    try:
+        wav_path = resolve_under(SONGS_DIR, f"{name}.wav")
+    except ValueError:
+        return jsonify({"success": False, "error": "invalid song_name"}), 400
+    if not wav_path.is_file():
         return jsonify({"success": False, "error": "song not found"}), 404
-    print(f"[🎵] 曲配信: {song_name}")
-    return send_file(wav_path, mimetype="audio/wav", as_attachment=True, download_name=f"{song_name}.wav")
+    print(f"[🎵] 曲配信: {name}")
+    return send_file(str(wav_path), mimetype="audio/wav", as_attachment=True, download_name=f"{name}.wav")
 
 
 @app.route("/speakers", methods=["GET"])

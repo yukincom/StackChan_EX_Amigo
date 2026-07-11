@@ -148,6 +148,8 @@ bool playMP3URL(const char *url)
 {
   bool result = false;
   static constexpr const char *kTempPushMp3 = "/push_tmp.mp3";
+  // SPIFFS 肥大・DoS 防止（push TTS の想定上限）
+  static constexpr size_t kMaxPushMp3Bytes = 1024 * 1024;
 
   if (url == nullptr || strlen(url) == 0) {
     Serial.println("mp3 url is empty");
@@ -170,6 +172,13 @@ bool playMP3URL(const char *url)
     return false;
   }
 
+  int content_length = http.getSize();
+  if (content_length > 0 && static_cast<size_t>(content_length) > kMaxPushMp3Bytes) {
+    Serial.printf("mp3 url too large: %d bytes\n", content_length);
+    http.end();
+    return false;
+  }
+
   if (SPIFFS.exists(kTempPushMp3)) {
     SPIFFS.remove(kTempPushMp3);
   }
@@ -183,10 +192,15 @@ bool playMP3URL(const char *url)
 
   WiFiClient *stream = http.getStreamPtr();
   uint8_t buffer[1024];
+  size_t total_written = 0;
+  bool aborted = false;
   while (http.connected()) {
     size_t available = stream->available();
     if (available == 0) {
-      if (http.getSize() == file_mp3.size()) {
+      if (content_length > 0 && file_mp3.size() >= static_cast<size_t>(content_length)) {
+        break;
+      }
+      if (content_length <= 0 && !stream->connected()) {
         break;
       }
       delay(1);
@@ -197,10 +211,21 @@ bool playMP3URL(const char *url)
     if (read_len <= 0) {
       break;
     }
+    total_written += static_cast<size_t>(read_len);
+    if (total_written > kMaxPushMp3Bytes) {
+      Serial.println("mp3 download exceeded size cap");
+      aborted = true;
+      break;
+    }
     file_mp3.write(buffer, read_len);
   }
   file_mp3.close();
   http.end();
+
+  if (aborted) {
+    SPIFFS.remove(kTempPushMp3);
+    return false;
+  }
 
   if (!SPIFFS.exists(kTempPushMp3)) {
     Serial.println("temp mp3 missing after download");

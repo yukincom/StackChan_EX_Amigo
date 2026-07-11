@@ -112,8 +112,14 @@ def get_pending_notifications():
 @app.route("/voice/<voice_id>", methods=["GET"])
 def get_voice_by_id(voice_id):
     """特定のvoice_idを取得（プロキシ）"""
+    from path_safety import safe_voice_id
+
+    vid = safe_voice_id(voice_id)
+    if not vid:
+        return jsonify({"success": False, "status": "invalid_voice_id"}), 400
+
     try:
-        voice_url = f"{config.VOICE_SERVER_URL}/voice/{voice_id}"
+        voice_url = f"{config.VOICE_SERVER_URL}/voice/{vid}"
         remote_response = requests.get(voice_url, timeout=30)
 
         if remote_response.status_code != 200:
@@ -124,7 +130,7 @@ def get_voice_by_id(voice_id):
             mimetype="audio/wav",
             headers={
                 "Content-Disposition": "attachment; filename=voice.wav",
-                "X-Voice-Id": voice_id,
+                "X-Voice-Id": vid,
             },
         )
     except requests.RequestException:
