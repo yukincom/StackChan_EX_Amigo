@@ -254,8 +254,10 @@ def audio_proxy_mp3():
 
 @openai_bp.route("/v1/audio/transcriptions", methods=["POST"])
 def transcriptions():
-    """STT: Whisper互換エンドポイント"""
+    """STT: Whisper互換エンドポイント（ファーム本体が主に使う経路）"""
     try:
+        from ai_handler import is_english_mode
+
         if "file" in request.files:
             audio_content = request.files["file"].read()
         else:
@@ -265,6 +267,15 @@ def transcriptions():
             return jsonify({"error": {"message": "Audio too short", "type": "invalid_request_error"}}), 400
 
         language = request.form.get("language", "ja")
+        # 診断用: 英語モード状態は見るが、現状この経路では use_english_model に渡していない
+        english_flag = is_english_mode()
+        print(
+            f"[STT] endpoint=/v1/audio/transcriptions "
+            f"english_mode={english_flag} "
+            f"form_language={language!r} "
+            f"use_english_model_passed=False "
+            f"bytes={len(audio_content)}"
+        )
         transcript = speech_service.transcribe(audio_content, language_code=language)
         if not transcript:
             return jsonify({"error": {"message": "No speech detected", "type": "invalid_request_error"}}), 400

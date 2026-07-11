@@ -152,6 +152,12 @@ def transcribe_speech():
 
         # 英語モデル切り替え
         use_english = is_english_mode()
+        print(
+            f"[STT] endpoint=/speech/transcribe "
+            f"english_mode={use_english} "
+            f"use_english_model_passed={use_english} "
+            f"bytes={len(audio_content)}"
+        )
         transcript = speech_service.transcribe(
             audio_content,
             use_english_model=use_english,
