@@ -108,6 +108,8 @@ class Config:
 
     #SERVER setting
     SERVER_PORT = int(os.getenv("SERVER_PORT", "5050"))
+    # ConfigUI (/admin) 用。未設定時は localhost のみ許可。
+    ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
 
     # パーソナル設定
     ASSISTANT_NAME   = os.getenv("ASSISTANT_NAME", "スタックちゃん")

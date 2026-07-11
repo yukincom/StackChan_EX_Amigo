@@ -103,6 +103,10 @@ python app.py
 
 `http://<server-ip>:5050/admin`
 
+`~/env/.env` に `ADMIN_TOKEN` を設定してください（`openssl rand -hex 32`）。
+LAN 上の他端末から開く場合は必須です。未設定時は localhost のみ API が使えます。
+詳細は [docs/server.md](docs/server.md) の ConfigUI 認証を参照。
+
 ここから以下を調整できます。
 
 - アシスタント名 / ペルソナ

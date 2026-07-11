@@ -6,7 +6,7 @@ async function loadAnnouncements() {
   document.getElementById('ann-loading').style.display = '';
   document.getElementById('ann-content').style.display = 'none';
   try {
-    const res = await fetch('/admin/api/announcements');
+    const res = await adminFetch('/admin/api/announcements');
     annData = await res.json();
     renderAnnouncements();
   } catch(e) {
@@ -18,7 +18,7 @@ async function loadWeatherScheduleEnv() {
   document.getElementById('ann-weather-loading').style.display = '';
   document.getElementById('ann-weather-content').style.display = 'none';
   try {
-    const res = await fetch('/admin/api/weather_schedule_env');
+    const res = await adminFetch('/admin/api/weather_schedule_env');
     const groups = await res.json();
     renderEnvGroups(groups, 'ann-weather-content');
     document.getElementById('ann-weather-loading').style.display = 'none';
@@ -119,7 +119,7 @@ function removeAnnouncement(idx) {
 
 async function saveAnnouncements() {
   try {
-    const res = await fetch('/admin/api/announcements', {
+    const res = await adminFetch('/admin/api/announcements', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(annData)
@@ -134,7 +134,7 @@ async function saveAnnouncements() {
 
 async function saveWeatherScheduleEnv() {
   try {
-    const res = await fetch('/admin/api/weather_schedule_env', {
+    const res = await adminFetch('/admin/api/weather_schedule_env', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(collectEnvValues('ann-weather-content'))

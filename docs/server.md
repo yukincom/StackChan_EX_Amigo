@@ -47,7 +47,23 @@ today.mdは以下のディレクトリに移動してください。
 
 - `~/basic-memory/`
 
-その後、`http://(serverのIPアドレス):5050/admin`にて`~/env/.env` の内容を自分の環境に合わせて編集してください。
+その後、`http://(serverのIPアドレス):5050/admin` にて `~/env/.env` の内容を自分の環境に合わせて編集してください。
+
+#### ConfigUI 認証（ADMIN_TOKEN）
+
+`/admin/api/*` は認証必須です。`~/env/.env` に次を設定してください。
+
+```env
+# 生成例: openssl rand -hex 32
+ADMIN_TOKEN=your-long-random-token
+```
+
+- ブラウザの ConfigUI では起動時にトークン入力を求められます（`sessionStorage` に保持）
+- API 直叩き時はヘッダを付けます:
+  - 推奨: `Authorization: Bearer <ADMIN_TOKEN>`
+  - 互換: `X-Admin-Token: <ADMIN_TOKEN>`
+- `ADMIN_TOKEN` 未設定のときは **localhost からのみ** API が使えます（LAN 上の他端末からは 401）
+- password 型の設定（API キー等）は GET で生値を返しません。空のまま保存すると「変更なし」です
 
 ### 3.2. 外部依存
 
@@ -74,7 +90,7 @@ today.mdは以下のディレクトリに移動してください。
 
 ## 4. 主な設定項目
 
-`http://(serverのIPアドレス):5050/admin`　にて編集してください。
+`http://(serverのIPアドレス):5050/admin` にて編集してください（`ADMIN_TOKEN` 認証が必要です。上記「ConfigUI 認証」参照）。
 
 ### 4.1. AI 関連
 

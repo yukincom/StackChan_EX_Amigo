@@ -205,14 +205,59 @@
       border-radius: 4px; height: 14px; margin: 8px 0;
     }
     @keyframes shimmer { to { background-position: -200% 0; } }
+
+    #admin-auth-gate {
+      display: none;
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(26, 29, 35, 0.45);
+      align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .admin-auth-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.18);
+      padding: 28px 28px 22px;
+      width: min(420px, 100%);
+    }
+    .admin-auth-card h3 { font-size: 17px; margin-bottom: 8px; }
+    .admin-auth-card p { color: var(--muted); font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
+    .admin-auth-card code { font-size: 12px; background: #f0f2f5; padding: 1px 5px; border-radius: 4px; }
+    .btn-link {
+      background: transparent; color: var(--muted); font-weight: 500; padding: 7px 10px;
+    }
+    .btn-link:hover { color: var(--danger); opacity: 1; }
   </style>
 </head>
 <body>
 
 <header>
   <div class="logo"><span>🤖</span> StackChan 管理 UI</div>
-  <span id="toast"></span>
+  <div style="display:flex; align-items:center; gap:10px;">
+    <button type="button" class="btn-link btn-sm" id="admin-logout-btn" onclick="logoutAdminToken()" style="display:none;">トークン解除</button>
+    <span id="toast"></span>
+  </div>
 </header>
+
+<div id="admin-auth-gate" role="dialog" aria-modal="true" aria-labelledby="admin-auth-title">
+  <div class="admin-auth-card">
+    <h3 id="admin-auth-title">🔐 管理画面の認証</h3>
+    <p>
+      <code>ADMIN_TOKEN</code> を入力してください（<code>Authorization: Bearer</code>）。
+      トークン未設定の場合は <strong>この PC（localhost）</strong> からのみ利用できます。
+      生成例: <code>openssl rand -hex 32</code>
+    </p>
+    <div class="field">
+      <label for="admin-token-input">ADMIN_TOKEN</label>
+      <input id="admin-token-input" type="password" autocomplete="current-password"
+             placeholder="~/env/.env の ADMIN_TOKEN">
+    </div>
+    <div class="btn-row" style="margin-top:8px;">
+      <button type="button" class="btn-primary" onclick="submitAdminToken()">入室する</button>
+    </div>
+  </div>
+</div>
 
 <div class="layout">
   <nav>
@@ -384,14 +429,33 @@
 <script src="/static/admin/js/env.js"></script>
 
 <script>
-// ===== 初期ロード =====
-loadReading();
-loadAnnouncements();
-loadWeatherScheduleEnv();
-loadVoiceCache();
-loadMember();
-loadAiEnv();
-loadEnv();
+// ===== 初期ロード（認証後） =====
+function loadAllAdminPages() {
+  loadReading();
+  loadAnnouncements();
+  loadWeatherScheduleEnv();
+  loadVoiceCache();
+  loadMember();
+  loadAiEnv();
+  loadEnv();
+}
+
+window.onAdminAuthenticated = function () {
+  const btn = document.getElementById('admin-logout-btn');
+  if (btn) btn.style.display = getAdminToken() ? '' : 'none';
+  loadAllAdminPages();
+};
+
+document.getElementById('admin-token-input')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') submitAdminToken();
+});
+
+(async function initAdminUi() {
+  const ok = await ensureAdminAuth();
+  const btn = document.getElementById('admin-logout-btn');
+  if (btn) btn.style.display = (ok && getAdminToken()) ? '' : 'none';
+  if (ok) loadAllAdminPages();
+})();
 </script>
 </body>
 </html>
