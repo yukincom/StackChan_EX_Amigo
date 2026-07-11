@@ -70,6 +70,11 @@ ADMIN_TOKEN=your-long-random-token
 - `/audio/proxy.mp3?src=` は **SSRF 防止**のため、`VOICE_SERVER_URL` と同じ host（および localhost）の `http` で、path が `/voice/` または `/song/` のものだけ許可します
 - キャッシュ音声・song・voice_id は英数字と `._-` のみ。`../` などのパストラバーサルは拒否します
 
+#### today.md の同時書き込み
+
+会話ログ `today.md` は chat / vision / 天気 / 起動時バッチが共有します。  
+`memory_manager` のプロセス内ロック経由でのみ読み書きし、途中で壊れた Markdown になりにくくしています（LLM など重い処理はロック外）。
+
 ### 3.2. 外部依存
 
 構成に応じて、次の外部依存を別途用意します。

@@ -7,6 +7,9 @@
 2. LLMで要約生成
 3. 生データをアーカイブ化
 4. mdファイルを要約だけに圧縮
+
+today.md の読み書きは memory_manager のロック経由。
+LLM 呼び出しはロック外で行う。
 """
 
 import re
@@ -16,11 +19,13 @@ from pathlib import Path
 from config import config
 from member_loader import MASTER_LABEL, mask_names, unmask_names
 import llm_client
+from memory_manager import read_today, update_today
 from services.weather_service import get_confirmed_weather_summary
 
 
 MEMORY_DIR = Path(config.MEMORY_DIR)
 ARCHIVE_DIR = Path(config.ARCHIVE_DIR)
+
 
 def run_if_needed():
     """起動時に呼ぶ。未処理の日付を全て処理する。"""
@@ -29,11 +34,10 @@ def run_if_needed():
         print("[BATCH] アーカイブ先が見つかりません。スキップします")
         return
 
-    md_path = MEMORY_DIR / "today.md"
-    content = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
+    content = read_today()
 
     # today.md 内の全日付を抽出
-    all_dates = sorted(set(re.findall(r'### (\d{4}-\d{2}-\d{2})', content)))
+    all_dates = sorted(set(re.findall(r"### (\d{4}-\d{2}-\d{2})", content)))
     today = datetime.now().strftime("%Y-%m-%d")
 
     # 今日以外 かつ 未アーカイブの日付を全部処理
@@ -46,47 +50,52 @@ def run_if_needed():
             print(f"[BATCH] {target_date}.md は処理済み → スキップ")
             continue
 
+        # 最新 content からその日の会話を取る（ループ中に today が変わるため再読込）
+        content = read_today()
         day_convos = _extract_day_conversations(content, target_date)
         if not day_convos:
             continue
 
         print(f"[BATCH] {target_date} 分を処理中...")
-        # contentを毎回読み直す（前の処理でファイルが更新されるため）
-        content = md_path.read_text(encoding="utf-8")
-        _process_speaker(target_date, day_convos, content, md_path)
-        
+        _process_speaker(target_date, day_convos)
+
+
 def _extract_day_conversations(content, date):
     """指定日の会話ブロックを抽出"""
     # ### 2026-02-20 15:46 形式のブロックを抽出
-    pattern = rf'### {re.escape(date)}.*?(?=\n### |\Z)'
+    pattern = rf"### {re.escape(date)}.*?(?=\n### |\Z)"
     matches = re.findall(pattern, content, re.DOTALL)
     return matches
 
 
-def _process_speaker(date, day_convos, full_content, md_path):
-    """1人分のバッチ処理"""
+def _process_speaker(date, day_convos):
+    """1日分のバッチ処理。LLM はロック外、today.md 更新はロック内。"""
 
     # 1. アーカイブフォルダを作成
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 2. 生データをSSDに保存
+    # 2. 生データをSSDに保存（today.md 以外 → ロック不要）
     archive_path = ARCHIVE_DIR / f"{date}.md"
     archive_content = f"# today の会話ログ ({date})\n\n"
     archive_content += unmask_names("\n".join(day_convos))
     archive_path.write_text(archive_content, encoding="utf-8")
     print(f"[BATCH] アーカイブ保存: {archive_path}")
 
-    # 3. AIで要約生成
+    # 3. AIで要約生成（重いのでロック外）
     summary = _generate_summary(date, day_convos)
     weather_summary = get_confirmed_weather_summary(date)
     print(f"[BATCH] 要約生成完了:\n{summary}")
 
-    # 4. mdファイルを更新（生の会話履歴を削除 → 要約に置換）
-    new_content = _update_md(full_content, date, day_convos, summary, weather_summary)
-    md_path.write_text(new_content, encoding="utf-8")
-    print(f"[BATCH] today.md を更新しました")
+    # 4. today.md を更新（再読込 + 置換 + 古い要約アーカイブをロック内）
+    def mutator(full_content: str) -> str:
+        fresh = _extract_day_conversations(full_content, date)
+        if not fresh:
+            return full_content
+        new_content = _update_md(full_content, date, fresh, summary, weather_summary)
+        return _archive_old_summaries_content(new_content)
 
-    _archive_old_summaries(md_path)
+    update_today(mutator)
+    print("[BATCH] today.md を更新しました")
 
 
 def _generate_summary(date, day_convos):
@@ -149,40 +158,43 @@ def _update_md(content, date, day_convos, summary, weather_summary=None):
         # 既存のセクションに追記
         new_content = new_content.replace(
             "## 📅 過去の要約",
-            f"## 📅 過去の要約\n{summary_entry}"
+            f"## 📅 過去の要約\n{summary_entry}",
         )
     else:
         # セクション自体を新規追加（💬 会話履歴の前に挿入）
         new_content = new_content.replace(
             "## 💬 会話履歴",
-            f"## 📅 過去の要約\n{summary_entry}\n## 💬 会話履歴"
+            f"## 📅 過去の要約\n{summary_entry}\n## 💬 会話履歴",
         )
-    new_content = re.sub(r'\n{3,}', '\n\n', new_content)
+    new_content = re.sub(r"\n{3,}", "\n\n", new_content)
 
     return new_content
 
-def _archive_old_summaries(md_path):
-    """
-    today.mdの要約が14日を超えたら、
-    最も古い週（月〜日）をyear.mdに移す。
-    """
-    content = md_path.read_text(encoding="utf-8")
 
+def _archive_old_summaries_content(content: str) -> str:
+    """
+    today.md の要約が14日を超えたら、最も古い週（月〜日）を year.md に移す。
+    呼び出し元は today ロック内であること。
+    year.md への追記はこの中で行う（today 更新と一連の操作として直列化）。
+    """
     # 要約セクションを抽出
     summary_section = re.search(
-        r'## 📅 過去の要約\n(.*?)(?=\n## |\Z)',
-        content, re.DOTALL
+        r"## 📅 過去の要約\n(.*?)(?=\n## |\Z)",
+        content,
+        re.DOTALL,
     )
     if not summary_section:
-        return
+        return content
 
     # ### YYYY-MM-DD のブロックを日付順に取得
     blocks = re.findall(
-        r'(### (\d{4}-\d{2}-\d{2})\n.*?)(?=\n### |\Z)',
-        summary_section.group(1), re.DOTALL
+        r"(### (\d{4}-\d{2}-\d{2})\n.*?)(?=\n### |\Z)",
+        summary_section.group(1),
+        re.DOTALL,
     )
-    if len(blocks) <= 14:
-        return  # 14日以内なら何もしない
+    keep_days = int(getattr(config, "SUMMARY_KEEP_DAYS", 14) or 14)
+    if len(blocks) <= keep_days:
+        return content  # 保持日数以内なら何もしない
 
     # 日付でソート
     blocks.sort(key=lambda x: x[1])
@@ -203,7 +215,7 @@ def _archive_old_summaries(md_path):
             to_keep.append((block_date_str, block_text))
 
     if not to_archive:
-        return
+        return content
 
     # year.mdに書き出す（年をまたぐ場合は正しいyear.mdへ）
     for date_str, block_text in to_archive:
@@ -228,8 +240,7 @@ def _archive_old_summaries(md_path):
         entry = f"## {date_str}\n"
         # block_textから要約の中身だけ取り出す（### 行を除く）
         summary_lines = "\n".join(
-            line for line in block_text.split("\n")
-            if not line.startswith("### ")
+            line for line in block_text.split("\n") if not line.startswith("### ")
         ).strip()
         entry += summary_lines + "\n\n"
 
@@ -241,10 +252,11 @@ def _archive_old_summaries(md_path):
     # today.mdから移動済みブロックを削除
     new_summary_text = "\n".join(text for _, text in to_keep)
     new_content = re.sub(
-        r'(## 📅 過去の要約\n).*?(?=\n## |\Z)',
-        f'## 📅 過去の要約\n{new_summary_text}',
-        content, flags=re.DOTALL
+        r"(## 📅 過去の要約\n).*?(?=\n## |\Z)",
+        f"## 📅 過去の要約\n{new_summary_text}",
+        content,
+        flags=re.DOTALL,
     )
     # 空白行を整理
-    new_content = re.sub(r'\n{3,}', '\n\n', new_content)
-    md_path.write_text(new_content, encoding="utf-8")
+    new_content = re.sub(r"\n{3,}", "\n\n", new_content)
+    return new_content
