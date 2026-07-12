@@ -4,7 +4,7 @@ async function loadEnv() {
   document.getElementById('env-loading').style.display = '';
   document.getElementById('env-content').style.display = 'none';
   try {
-    const res = await fetch('/admin/api/env');
+    const res = await adminFetch('/admin/api/env');
     const groups = await res.json();
     renderEnvGroups(groups, 'env-content');
     document.getElementById('env-loading').style.display = 'none';
@@ -14,7 +14,7 @@ async function loadEnv() {
 
 async function saveEnv() {
   try {
-    const res = await fetch('/admin/api/env', {
+    const res = await adminFetch('/admin/api/env', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(collectEnvValues('env-content'))
     });

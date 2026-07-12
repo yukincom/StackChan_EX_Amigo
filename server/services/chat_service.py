@@ -8,7 +8,13 @@ import time
 import requests
 
 from config import config
-from ai_handler import detect_intent, get_ai_response, needs_search, set_english_mode
+from ai_handler import (
+    detect_intent,
+    get_ai_response,
+    is_english_mode,
+    needs_search,
+    set_english_mode,
+)
 from services.voice_cache_catalog import get_pc_cache_text
 from services.voice_service import generate_voice_mixed, push_to_m5stack
 from services.weather_service import get_weather_response
@@ -181,15 +187,31 @@ def _camera_trigger_result(
     }
 
 
+def _text_has_now_scene_token(text: str) -> bool:
+    """「今/いま」判定。「今日」に含まれる「今」は誤爆するので除く。"""
+    cleaned = (
+        (text or "")
+        .replace("今日", "")
+        .replace("きょう", "")
+        .replace("本日", "")
+    )
+    return "今" in cleaned or "いま" in cleaned
+
+
 def _looks_like_visual_question(user_text: str) -> bool:
     normalized = (user_text or "").strip()
     normalized_lower = normalized.lower()
     if not normalized:
         return False
 
+    # 天気質問は視覚ヒューリスティックの対象外（「今日の天気は何？」誤爆防止）
+    if _detect_weather_target(normalized):
+        return False
+
     jp_demonstratives = ("これ", "それ", "あれ")
     en_demonstratives = ("this", "that", "it")
-    jp_scene_targets = ("前に", "まえに", "目の前", "めのまえ", "周り", "まわり", "いま", "今")
+    # 「今」は _text_has_now_scene_token で別判定（今日の部分一致を避ける）
+    jp_scene_targets = ("前に", "まえに", "目の前", "めのまえ", "周り", "まわり")
     jp_visual_topics = (
         "何", "なん", "何だ", "なんだ", "何だろう", "なんだろう",
         "知ってる", "同じ", "見える", "何に使う", "なんにつかう",
@@ -201,10 +223,14 @@ def _looks_like_visual_question(user_text: str) -> bool:
     )
 
     jp_match = any(token in normalized for token in jp_demonstratives) and any(token in normalized for token in jp_visual_topics)
+    has_scene_target = (
+        any(token in normalized for token in jp_scene_targets)
+        or _text_has_now_scene_token(normalized)
+    )
     jp_scene_match = (
         any(token in normalized for token in jp_scene_prompts)
         or (
-            any(token in normalized for token in jp_scene_targets)
+            has_scene_target
             and any(token in normalized for token in ("見える", "みえる", "何", "なん"))
         )
     )
@@ -273,6 +299,7 @@ def process_chat(user_text, speaker="master", generate_voice_flag=False, speaker
             ai_response, user_text, speaker, speaker_label, generate_voice_flag, master_label
         )
 
+    # 明示キーワードのカメラ要求
     camera_mode = _detect_camera_mode(user_text)
     if camera_mode:
         memory = RobotMemory()
@@ -290,6 +317,15 @@ def process_chat(user_text, speaker="master", generate_voice_flag=False, speaker
             speaker_label=label,
         )
 
+    # 天気は視覚ヒューリスティックより先（「今日の天気は何？」誤爆防止）
+    weather_target = _detect_weather_target(user_text)
+    if weather_target:
+        ai_response = get_weather_response(weather_target)
+        if ai_response:
+            return _build_voice_response(
+                ai_response, user_text, speaker, speaker_label, generate_voice_flag, master_label
+            )
+
     if _looks_like_visual_question(user_text):
         memory = RobotMemory()
         label = speaker_label if speaker_label else master_label
@@ -306,14 +342,6 @@ def process_chat(user_text, speaker="master", generate_voice_flag=False, speaker
             speaker=speaker,
             speaker_label=label,
         )
-    
-    weather_target = _detect_weather_target(user_text)
-    if weather_target:
-        ai_response = get_weather_response(weather_target)
-        if ai_response:
-            return _build_voice_response(
-                ai_response, user_text, speaker, speaker_label, generate_voice_flag, master_label
-            )
     # 歌唱
     if any(kw in user_text for kw in config.SONG_TRIGGER):
 
@@ -346,9 +374,15 @@ def process_chat(user_text, speaker="master", generate_voice_flag=False, speaker
 
     # ── 英語応答の意図判定 ──────────────
     intent = detect_intent(user_text)
-    print(f"[MODE] intent={intent}")
+    # 英語モード中は LLM も英語で返す（STT が多少ずれても英語会話を維持）
+    eng_mode = is_english_mode()
+    print(f"[MODE] intent={intent} english_mode={eng_mode}")
     try:
-        mode = intent if intent == "english_reply" else "normal"
+        mode = (
+            "english_reply"
+            if (intent == "english_reply" or eng_mode)
+            else "normal"
+        )
         memory      = RobotMemory()
         context     = memory.get_context(
             query=user_text,

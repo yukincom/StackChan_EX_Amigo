@@ -3,6 +3,8 @@
 
 import os
 import json
+import re
+import secrets
 from pathlib import Path
 from flask import Blueprint, jsonify, render_template, request
 from config import config
@@ -22,6 +24,62 @@ _JSON_DIR = _BASE / "json"
 _MEMBER_JSON_PATH = _JSON_DIR / "member.json"
 _READING_MAP_JSON_PATH = _JSON_DIR / "reading_map.json"
 _ANNOUNCEMENTS_JSON_PATH = _JSON_DIR / "announcements.json"
+
+# password フィールドの「変更なし」マーカー（UI は空欄のまま送る）
+_SECRET_UNCHANGED = ""
+_MLX_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$")
+
+
+def _extract_admin_token() -> str:
+    auth = (request.headers.get("Authorization") or "").strip()
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return (request.headers.get("X-Admin-Token") or "").strip()
+
+
+def _client_is_loopback() -> bool:
+    addr = (request.remote_addr or "").strip()
+    return addr in ("127.0.0.1", "::1")
+
+
+def _is_admin_authorized() -> bool:
+    expected = (config.ADMIN_TOKEN or "").strip()
+    provided = _extract_admin_token()
+    if expected:
+        if not provided:
+            return False
+        return secrets.compare_digest(provided, expected)
+    # トークン未設定: 開発用に localhost のみ許可
+    return _client_is_loopback()
+
+
+@admin_bp.before_request
+def _require_admin_auth():
+    # HTML 本体は公開（トークン入力 UI を出すため）。API のみ保護。
+    if request.endpoint == "admin.admin_index":
+        return None
+    if request.method == "OPTIONS":
+        return None
+    if _is_admin_authorized():
+        return None
+    return jsonify({
+        "ok": False,
+        "error": "unauthorized",
+        "message": "Admin authentication required. "
+                   "Send Authorization: Bearer <ADMIN_TOKEN> "
+                   "(or X-Admin-Token). "
+                   "If ADMIN_TOKEN is unset, only localhost is allowed.",
+    }), 401
+
+
+@admin_bp.route("/admin/api/auth/check", methods=["GET"])
+def auth_check():
+    """UI 用: 認可済みなら 200。未認可は before_request で 401。"""
+    return jsonify({
+        "ok": True,
+        "token_configured": bool((config.ADMIN_TOKEN or "").strip()),
+        "loopback": _client_is_loopback(),
+    })
 
 # ===== ヘルパー =====
 
@@ -319,7 +377,51 @@ AI_ENV_GROUPS = [
     },
 ]
 
+def _iter_group_items(groups):
+    for group in groups:
+        for item in group.get("items", []):
+            yield item
+
+
+def _allowed_keys_for_groups(groups) -> set[str]:
+    return {
+        str(item.get("key", "")).strip()
+        for item in _iter_group_items(groups)
+        if str(item.get("key", "")).strip()
+    }
+
+
+def _secret_keys_for_groups(groups) -> set[str]:
+    return {
+        str(item.get("key", "")).strip()
+        for item in _iter_group_items(groups)
+        if item.get("type") == "password" and str(item.get("key", "")).strip()
+    }
+
+
+def _sanitize_env_updates(raw: dict | None, groups) -> dict[str, str]:
+    """許可キーのみ。password の空欄は「変更なし」として落とす。"""
+    if not isinstance(raw, dict):
+        return {}
+    allowed = _allowed_keys_for_groups(groups)
+    secrets_keys = _secret_keys_for_groups(groups)
+    updates: dict[str, str] = {}
+    for key, value in raw.items():
+        k = str(key).strip()
+        if not k or k not in allowed:
+            continue
+        v = "" if value is None else str(value)
+        if k in secrets_keys:
+            if v.strip() == _SECRET_UNCHANGED or v.strip() in ("********", "••••••••"):
+                continue
+        updates[k] = v
+    return updates
+
+
 def _write_dotenv(path: Path, updates: dict[str, str]):
+    if not updates:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     updated_keys = set()
     new_lines = []
@@ -340,14 +442,25 @@ def _write_dotenv(path: Path, updates: dict[str, str]):
             new_lines.append(f'{k}={v}')
     path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
+
 def _build_env_response(groups):
     result = []
     for group in groups:
         items = []
         for item in group["items"]:
             key = item.get("key", "")
-            value = os.getenv(key, item.get("default", "")) if key else ""
-            items.append({**item, "value": value})
+            raw = os.getenv(key, item.get("default", "")) if key else ""
+            entry = {**item}
+            if item.get("type") == "password":
+                is_set = bool(str(raw).strip())
+                entry["value"] = ""
+                entry["is_set"] = is_set
+                entry["placeholder"] = (
+                    "設定済み（変更するときだけ入力）" if is_set else "未設定"
+                )
+            else:
+                entry["value"] = raw
+            items.append(entry)
         result.append({"group": group["group"], "items": items})
     return result
 
@@ -359,7 +472,8 @@ def get_env():
 @admin_bp.route("/admin/api/env", methods=["POST"])
 def save_env():
     try:
-        _write_dotenv(_ENV_DIR / ".env.local", request.get_json(force=True))
+        updates = _sanitize_env_updates(request.get_json(force=True), ENV_GROUPS)
+        _write_dotenv(_ENV_DIR / ".env.local", updates)
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -373,7 +487,10 @@ def get_weather_schedule_env():
 @admin_bp.route("/admin/api/weather_schedule_env", methods=["POST"])
 def save_weather_schedule_env():
     try:
-        _write_dotenv(_ENV_DIR / ".env.local", request.get_json(force=True))
+        updates = _sanitize_env_updates(
+            request.get_json(force=True), WEATHER_SCHEDULE_ENV_GROUPS
+        )
+        _write_dotenv(_ENV_DIR / ".env.local", updates)
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -385,10 +502,11 @@ def get_ai_env():
 @admin_bp.route("/admin/api/ai_env", methods=["POST"])
 def save_ai_env():
     try:
-        _write_dotenv(_ENV_DIR / ".env.local", request.get_json(force=True))
+        updates = _sanitize_env_updates(request.get_json(force=True), AI_ENV_GROUPS)
+        _write_dotenv(_ENV_DIR / ".env.local", updates)
         return jsonify({"ok": True})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500    
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @admin_bp.route("/admin/api/voice_cache", methods=["GET"])
@@ -448,20 +566,33 @@ def _is_mlx_model_cached(model_id: str) -> bool:
     result = try_to_load_from_cache(model_id, "config.json")
     return result is not None and result is not _CACHED_NO_EXIST
 
+def _validate_mlx_model_id(model: str) -> str | None:
+    model = (model or "").strip()
+    if not model:
+        return None
+    if not _MLX_MODEL_RE.fullmatch(model):
+        return None
+    if ".." in model or model.startswith("/"):
+        return None
+    return model
+
+
 @admin_bp.route("/admin/api/mlx/check")
 def mlx_check():
-    model = request.args.get("model", "").strip()
+    model = _validate_mlx_model_id(request.args.get("model", ""))
     if not model:
-        return jsonify({"ok": False, "error": "model is empty"})
+        return jsonify({"ok": False, "error": "invalid model id"}), 400
     cached = _is_mlx_model_cached(model)
     status = _download_status.get(model)
     return jsonify({"ok": True, "cached": cached, "status": status})
 
 @admin_bp.route("/admin/api/mlx/download", methods=["POST"])
 def mlx_download():
-    model = (request.get_json(force=True) or {}).get("model", "").strip()
+    model = _validate_mlx_model_id(
+        (request.get_json(force=True) or {}).get("model", "")
+    )
     if not model:
-        return jsonify({"ok": False, "error": "model is empty"})
+        return jsonify({"ok": False, "error": "invalid model id"}), 400
     if _download_status.get(model) == "downloading":
         return jsonify({"ok": True, "message": "already downloading"})
 
@@ -475,4 +606,4 @@ def mlx_download():
             print(f"[DOWNLOAD] ❌ {model_id}: {e}")
 
     threading.Thread(target=_do_download, args=(model,), daemon=True).start()
-    return jsonify({"ok": True})    
+    return jsonify({"ok": True})

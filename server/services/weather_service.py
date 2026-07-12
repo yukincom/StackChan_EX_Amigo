@@ -656,25 +656,22 @@ def _build_weather_section(cache):
 
 
 def _update_today_md(weather_section):
-    """today.md の ## 天気 セクションを上書き"""
-    md_path = Path(config.MEMORY_DIR) / "today.md"
+    """today.md の ## 天気 セクションを上書き（memory_manager ロック経由）"""
+    from memory_manager import update_today
 
-    if not md_path.exists():
-        md_path.write_text(weather_section + "\n", encoding="utf-8")
-        print("[WEATHER] today.md を新規作成して天気を記録")
-        return
+    def mutator(content: str) -> str:
+        if not content:
+            print("[WEATHER] today.md を新規作成して天気を記録")
+            return weather_section + "\n"
 
-    content = md_path.read_text(encoding="utf-8")
-
-    pattern = r'## 天気\n.*?(?=\n## |\Z)'
-    if re.search(pattern, content, re.DOTALL):
-        new_content = re.sub(pattern, weather_section.rstrip(), content, flags=re.DOTALL)
-    else:
+        pattern = r"## 天気\n.*?(?=\n## |\Z)"
+        if re.search(pattern, content, re.DOTALL):
+            return re.sub(pattern, weather_section.rstrip(), content, flags=re.DOTALL)
         # セクションがなければ先頭に追加
-        new_content = weather_section + "\n" + content
+        return weather_section + "\n" + content
 
-    md_path.write_text(new_content, encoding="utf-8")
-    print(f"[WEATHER] today.md を更新しました")
+    update_today(mutator)
+    print("[WEATHER] today.md を更新しました")
 
 
 def update_weather(mode):

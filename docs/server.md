@@ -47,7 +47,45 @@ today.mdは以下のディレクトリに移動してください。
 
 - `~/basic-memory/`
 
-その後、`http://(serverのIPアドレス):5050/admin`にて`~/env/.env` の内容を自分の環境に合わせて編集してください。
+その後、`http://(serverのIPアドレス):5050/admin` にて `~/env/.env` の内容を自分の環境に合わせて編集してください。
+
+#### ConfigUI 認証（ADMIN_TOKEN）
+
+`/admin/api/*` は認証必須です。
+
+**手順**
+
+```bash
+# 1. トークン生成
+openssl rand -hex 32
+
+# 2. ~/env/.env または ~/env/.env.local に書く（.env.example の ADMIN_TOKEN= 行）
+ADMIN_TOKEN=（生成した文字列・引用符不要）
+
+# 3. server 再起動
+cd server && python app.py
+```
+
+ブラウザで `http://(serverのIP):5050/admin` を開き、同じ文字列を入力します（`sessionStorage` に保持）。
+
+**ルール**
+
+- API 直叩き時のヘッダ:
+  - 推奨: `Authorization: Bearer <ADMIN_TOKEN>`
+  - 互換: `X-Admin-Token: <ADMIN_TOKEN>`
+- `ADMIN_TOKEN` **未設定**: **localhost からのみ** API 可（LAN 他端末は 401）
+- `ADMIN_TOKEN` **設定済み**: 全クライアントでトークン必須（localhost 含む）
+- password 型の設定（API キー等）は GET で生値を返しません。空のまま保存すると「変更なし」です
+
+#### 音声 proxy / ファイルパスの制限
+
+- `/audio/proxy.mp3?src=` は **SSRF 防止**のため、`VOICE_SERVER_URL` と同じ host（および localhost）の `http` で、path が `/voice/` または `/song/` のものだけ許可します
+- キャッシュ音声・song・voice_id は英数字と `._-` のみ。`../` などのパストラバーサルは拒否します
+
+#### today.md の同時書き込み
+
+会話ログ `today.md` は chat / vision / 天気 / 起動時バッチが共有します。  
+`memory_manager` のプロセス内ロック経由でのみ読み書きし、途中で壊れた Markdown になりにくくしています（LLM など重い処理はロック外）。
 
 ### 3.2. 外部依存
 
@@ -74,7 +112,7 @@ today.mdは以下のディレクトリに移動してください。
 
 ## 4. 主な設定項目
 
-`http://(serverのIPアドレス):5050/admin`　にて編集してください。
+`http://(serverのIPアドレス):5050/admin` にて編集してください（`ADMIN_TOKEN` 認証が必要です。上記「ConfigUI 認証」参照）。
 
 ### 4.1. AI 関連
 

@@ -7,7 +7,7 @@ async function loadVoiceCache() {
   document.getElementById('voice-cache-loading').style.display = '';
   document.getElementById('voice-cache-content').style.display = 'none';
   try {
-    const res = await fetch('/admin/api/voice_cache');
+    const res = await adminFetch('/admin/api/voice_cache');
     const data = await res.json();
     voiceCacheData = data.catalog || data;
     voiceCachePaths = data.paths || { pc_cache_dir: '', stack_sd_dir: '' };
@@ -95,7 +95,7 @@ function removeStackSdRow(idx) {
 
 async function saveVoiceCache() {
   try {
-    const res = await fetch('/admin/api/voice_cache', {
+    const res = await adminFetch('/admin/api/voice_cache', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(voiceCacheData),
@@ -115,7 +115,7 @@ async function saveVoiceCache() {
 }
 
 async function _generateVoiceCache(kind, item) {
-  const res = await fetch('/admin/api/voice_cache/generate', {
+  const res = await adminFetch('/admin/api/voice_cache/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ kind, item }),

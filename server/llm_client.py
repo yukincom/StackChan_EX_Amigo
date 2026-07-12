@@ -135,7 +135,9 @@ def _call_openai_compatible(prompt: str, model: str, temperature: float) -> str:
 _mlx_model = None
 _mlx_processor = None
 _mlx_loaded_model_name = None
-_mlx_loading_lock = threading.Lock()  
+_mlx_loading_lock = threading.Lock()
+# load + generate 全体を直列化（並行 generate によるクラッシュ防止）
+_mlx_generate_lock = threading.Lock()
 
 def _call_mlx(prompt: str, model: str, temperature: float, image_path: str = None) -> str:
     """振り分け関数"""
@@ -158,27 +160,28 @@ def _call_mlx_text(prompt: str, model: str, temperature: float) -> str:
         print(f"[LLM] ❌ モデル未DL: {model}")
         return "モデルがまだダウンロードされていないよ！先にdownload_model.pyを実行してね。"
 
-    with _mlx_loading_lock:
-        if _mlx_loaded_model_name != model:
-            print(f"[LLM] 🍎 MLXモデルロード中: {model}")
-            _mlx_model, _mlx_processor = load(model)
-            _mlx_loaded_model_name = model
+    with _mlx_generate_lock:
+        with _mlx_loading_lock:
+            if _mlx_loaded_model_name != model:
+                print(f"[LLM] 🍎 MLXモデルロード中: {model}")
+                _mlx_model, _mlx_processor = load(model)
+                _mlx_loaded_model_name = model
 
-    messages = [{"role": "user", "content": prompt}]
-    formatted = _mlx_processor.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-        enable_thinking=False
-    )
-    response = generate(
-        _mlx_model, _mlx_processor,
-        prompt=formatted,
-        max_tokens=config.AI_MAX_OUTPUT_TOKENS,
-        sampler=make_sampler(temperature), 
-        verbose=False
-    )
-    return _strip_thinking(response)
+        messages = [{"role": "user", "content": prompt}]
+        formatted = _mlx_processor.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False
+        )
+        response = generate(
+            _mlx_model, _mlx_processor,
+            prompt=formatted,
+            max_tokens=config.AI_MAX_OUTPUT_TOKENS,
+            sampler=make_sampler(temperature),
+            verbose=False
+        )
+        return _strip_thinking(response)
 
 
 def _call_mlx_vlm(prompt: str, model: str, temperature: float, image_path: str) -> str:

@@ -112,8 +112,14 @@ def get_pending_notifications():
 @app.route("/voice/<voice_id>", methods=["GET"])
 def get_voice_by_id(voice_id):
     """特定のvoice_idを取得（プロキシ）"""
+    from path_safety import safe_voice_id
+
+    vid = safe_voice_id(voice_id)
+    if not vid:
+        return jsonify({"success": False, "status": "invalid_voice_id"}), 400
+
     try:
-        voice_url = f"{config.VOICE_SERVER_URL}/voice/{voice_id}"
+        voice_url = f"{config.VOICE_SERVER_URL}/voice/{vid}"
         remote_response = requests.get(voice_url, timeout=30)
 
         if remote_response.status_code != 200:
@@ -124,7 +130,7 @@ def get_voice_by_id(voice_id):
             mimetype="audio/wav",
             headers={
                 "Content-Disposition": "attachment; filename=voice.wav",
-                "X-Voice-Id": voice_id,
+                "X-Voice-Id": vid,
             },
         )
     except requests.RequestException:
@@ -146,6 +152,12 @@ def transcribe_speech():
 
         # 英語モデル切り替え
         use_english = is_english_mode()
+        print(
+            f"[STT] endpoint=/speech/transcribe "
+            f"english_mode={use_english} "
+            f"use_english_model_passed={use_english} "
+            f"bytes={len(audio_content)}"
+        )
         transcript = speech_service.transcribe(
             audio_content,
             use_english_model=use_english,
@@ -160,9 +172,37 @@ def transcribe_speech():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
     
+# Vision: 無制限 Thread をやめ、単一ワーカー + キュー（満杯時は 429）
+import queue as _queue
+import threading as _threading
+
+_VISION_QUEUE: _queue.Queue = _queue.Queue(maxsize=2)
+_VISION_WORKER_STARTED = False
+
+
+def _vision_worker_loop():
+    while True:
+        item = _VISION_QUEUE.get()
+        try:
+            handle_vision_upload(*item)
+        except Exception:
+            traceback.print_exc()
+        finally:
+            _VISION_QUEUE.task_done()
+
+
+def _ensure_vision_worker():
+    global _VISION_WORKER_STARTED
+    if _VISION_WORKER_STARTED:
+        return
+    t = _threading.Thread(target=_vision_worker_loop, name="vision-worker", daemon=True)
+    t.start()
+    _VISION_WORKER_STARTED = True
+
+
 @app.route("/vision/upload", methods=["POST"])
 def vision_upload():
-    """M5Stack からの画像受信 → VLM解析 → TTS push（非同期）"""
+    """M5Stack からの画像受信 → VLM解析 → TTS push（非同期・キュー）"""
     try:
         try:
             image_data = request.get_data(cache=False, parse_form_data=False)
@@ -177,13 +217,17 @@ def vision_upload():
         speaker = request.args.get("s", "master")
         speaker_label = request.args.get("sl", "")
 
-        # 即 200 を返し、処理は別スレッドで
-        import threading
-        threading.Thread(
-            target=handle_vision_upload,
-            args=(image_data, requester, transcript, speaker, speaker_label),
-            daemon=True,
-        ).start()
+        _ensure_vision_worker()
+        try:
+            _VISION_QUEUE.put_nowait(
+                (image_data, requester, transcript, speaker, speaker_label)
+            )
+        except _queue.Full:
+            return jsonify({
+                "success": False,
+                "error": "vision_busy",
+                "message": "Vision is processing; try again shortly",
+            }), 429
 
         return jsonify({"success": True, "status": "processing"})
 

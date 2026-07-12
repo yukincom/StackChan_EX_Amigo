@@ -24,7 +24,7 @@ StackChan_EX_Amigo では、AI_StackChan_Ex をベースに、ローカル serve
 3. `server/json_example/` を `server/json/` にコピーする
 4. `.env.example` を `~/env/.env` にコピーして編集する
 5. `server/voice_server.py` と `server/app.py` を起動する
-6. `http://<server-ip>:5050/admin` を開き、Config UI で設定する
+6. `http://<server-ip>:5050/admin` を開き、Config UI で設定する（`ADMIN_TOKEN` が必要。未設定時は localhost のみ）
 7. firmware 側の `SC_ExConfig.yaml` で `base_url` を server に向ける
 8. PlatformIO で firmware をビルドして M5Stack に書き込む
 

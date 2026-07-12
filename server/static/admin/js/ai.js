@@ -4,7 +4,7 @@ async function loadAiEnv() {
   document.getElementById('ai-loading').style.display = '';
   document.getElementById('ai-content').style.display = 'none';
   try {
-    const res = await fetch('/admin/api/ai_env');
+    const res = await adminFetch('/admin/api/ai_env');
     const groups = await res.json();
     renderEnvGroups(groups, 'ai-content');
     document.getElementById('ai-loading').style.display = 'none';
@@ -16,7 +16,7 @@ async function loadAiEnv() {
 
 async function saveAiEnv() {
   try {
-    const res = await fetch('/admin/api/ai_env', {
+    const res = await adminFetch('/admin/api/ai_env', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(collectEnvValues('ai-content'))
     });
@@ -78,7 +78,7 @@ async function _checkModel(key) {
 
   status.textContent = '⏳';
   try {
-    const res  = await fetch(`/admin/api/mlx/check?model=${encodeURIComponent(model)}`);
+    const res  = await adminFetch(`/admin/api/mlx/check?model=${encodeURIComponent(model)}`);
     const data = await res.json();
 
     if (data.status === 'downloading') {
@@ -109,13 +109,13 @@ async function _startDownload(key) {
   status.textContent = '⏳ DL中...';
 
   try {
-    await fetch('/admin/api/mlx/download', {
+    await adminFetch('/admin/api/mlx/download', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ model })
     });
     // 3秒ごとにポーリング
     const poll = setInterval(async () => {
-      const res  = await fetch(`/admin/api/mlx/check?model=${encodeURIComponent(model)}`);
+      const res  = await adminFetch(`/admin/api/mlx/check?model=${encodeURIComponent(model)}`);
       const data = await res.json();
       if (data.cached) {
         status.textContent = '✅';

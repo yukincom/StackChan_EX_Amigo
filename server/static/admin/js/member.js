@@ -61,7 +61,7 @@ async function loadMember() {
   document.getElementById('member-loading').style.display = '';
   document.getElementById('member-content').style.display = 'none';
   try {
-    const res = await fetch('/admin/api/member');
+    const res = await adminFetch('/admin/api/member');
     memberData = normalizeMemberData(await res.json());
     renderMember();
   } catch(e) {
@@ -302,7 +302,7 @@ function removeMember(category, idx) {
 
 async function saveMember() {
   try {
-    const res = await fetch('/admin/api/member', {
+    const res = await adminFetch('/admin/api/member', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(normalizeMemberData(memberData))
     });

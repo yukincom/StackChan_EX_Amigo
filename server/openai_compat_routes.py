@@ -8,6 +8,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests as req
 from flask import Blueprint, Response, jsonify, request
@@ -25,6 +26,69 @@ from services.speech_service import speech_service
 from services.voice_service import generate_voice_mixed
 
 openai_bp = Blueprint("openai", __name__)
+
+# push 再生用 proxy の最大ダウンロードサイズ（WAV）
+_PROXY_MAX_BYTES = 8 * 1024 * 1024
+_PROXY_ALLOWED_PATH_PREFIXES = ("/voice/", "/song/")
+
+
+def _proxy_allowed_netlocs() -> set[tuple[str, int]]:
+    """(hostname_lower, port) の許可集合。voice_server と loopback のみ。"""
+    allowed: set[tuple[str, int]] = set()
+
+    def add(url: str) -> None:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if not host:
+            return
+        if parsed.port is not None:
+            port = parsed.port
+        elif parsed.scheme == "https":
+            port = 443
+        else:
+            port = 80
+        allowed.add((host, port))
+        # IPv4 loopback 別名
+        if host in ("127.0.0.1", "localhost"):
+            allowed.add(("127.0.0.1", port))
+            allowed.add(("localhost", port))
+
+    add(config.VOICE_SERVER_URL)
+    # デフォルト voice_server ポートも明示許可
+    allowed.add(("127.0.0.1", 5001))
+    allowed.add(("localhost", 5001))
+    return allowed
+
+
+def _validate_audio_proxy_src(src: str) -> str | None:
+    """
+    SSRF 防止: http のみ、host/port は voice_server 系、path は /voice/ or /song/。
+    通れば正規化した src を返す。ダメなら None。
+    """
+    src = (src or "").strip()
+    if not src or len(src) > 2048:
+        return None
+    try:
+        parsed = urlparse(src)
+    except Exception:
+        return None
+    if parsed.scheme != "http":
+        return None
+    if parsed.username or parsed.password:
+        return None
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return None
+    port = parsed.port if parsed.port is not None else 80
+    if (host, port) not in _proxy_allowed_netlocs():
+        return None
+    path = parsed.path or ""
+    if not any(path.startswith(prefix) for prefix in _PROXY_ALLOWED_PATH_PREFIXES):
+        return None
+    # クエリは voice_server が使わないので拒否
+    if parsed.query or parsed.fragment:
+        return None
+    return f"http://{host}:{port}{path}"
 
 
 def _extract_text_content(content) -> str:
@@ -135,15 +199,51 @@ def list_models():
 
 @openai_bp.route("/audio/proxy.mp3", methods=["GET"])
 def audio_proxy_mp3():
-    """任意のWAV URLをMP3に変換して返す。push再生向け。"""
+    """許可された voice_server URL の WAV を MP3 に変換して返す（push 再生向け）。"""
     try:
-        src = str(request.args.get("src", "")).strip()
+        raw_src = str(request.args.get("src", "")).strip()
+        src = _validate_audio_proxy_src(raw_src)
         if not src:
-            return jsonify({"error": {"message": "src is required", "type": "invalid_request_error"}}), 400
+            return jsonify({
+                "error": {
+                    "message": "src is not allowed (http voice_server /voice or /song only)",
+                    "type": "invalid_request_error",
+                }
+            }), 400
 
-        wav_response = req.get(src, timeout=15)
-        wav_response.raise_for_status()
-        mp3_data = _wav_to_mp3(wav_response.content)
+        # stream + size cap（SSRF 後の大容量 DoS も抑制）
+        with req.get(src, timeout=15, stream=True) as wav_response:
+            wav_response.raise_for_status()
+            content_length = wav_response.headers.get("Content-Length")
+            if content_length is not None:
+                try:
+                    if int(content_length) > _PROXY_MAX_BYTES:
+                        return jsonify({
+                            "error": {
+                                "message": "audio too large",
+                                "type": "invalid_request_error",
+                            }
+                        }), 400
+                except ValueError:
+                    pass
+
+            chunks: list[bytes] = []
+            total = 0
+            for chunk in wav_response.iter_content(chunk_size=64 * 1024):
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > _PROXY_MAX_BYTES:
+                    return jsonify({
+                        "error": {
+                            "message": "audio too large",
+                            "type": "invalid_request_error",
+                        }
+                    }), 400
+                chunks.append(chunk)
+            wav_bytes = b"".join(chunks)
+
+        mp3_data = _wav_to_mp3(wav_bytes)
         if not mp3_data:
             return jsonify({"error": {"message": "mp3 conversion failed", "type": "server_error"}}), 500
 
@@ -154,8 +254,10 @@ def audio_proxy_mp3():
 
 @openai_bp.route("/v1/audio/transcriptions", methods=["POST"])
 def transcriptions():
-    """STT: Whisper互換エンドポイント"""
+    """STT: Whisper互換エンドポイント（ファーム本体が主に使う経路）"""
     try:
+        from ai_handler import is_english_mode
+
         if "file" in request.files:
             audio_content = request.files["file"].read()
         else:
@@ -164,8 +266,22 @@ def transcriptions():
         if not audio_content or len(audio_content) < config.SPEECH_MIN_BYTES:
             return jsonify({"error": {"message": "Audio too short", "type": "invalid_request_error"}}), 400
 
-        language = request.form.get("language", "ja")
-        transcript = speech_service.transcribe(audio_content, language_code=language)
+        form_language = request.form.get("language", "ja")
+        use_english = is_english_mode()
+        # 英語モード中はファームの language=ja 固定を無視して EN モデルへ
+        language = "en" if use_english else form_language
+        print(
+            f"[STT] endpoint=/v1/audio/transcriptions "
+            f"english_mode={use_english} "
+            f"form_language={form_language!r} "
+            f"use_english_model_passed={use_english} "
+            f"bytes={len(audio_content)}"
+        )
+        transcript = speech_service.transcribe(
+            audio_content,
+            language_code=language,
+            use_english_model=use_english,
+        )
         if not transcript:
             return jsonify({"error": {"message": "No speech detected", "type": "invalid_request_error"}}), 400
 

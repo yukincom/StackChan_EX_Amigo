@@ -16,6 +16,7 @@ class SpeechService:
         tmp_16k = None
         try:
             lang = language_code.split("-")[0]
+            bytes_len = len(audio_content) if audio_content else 0
 
             # WAVを一時保存（M5Stackが16kHzで録音するのでそのまま使う）
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:#
@@ -29,13 +30,31 @@ class SpeechService:
                 f.write(audio_content)
                 tmp_16k = f.name
 
-            if use_english_model and config.WHISPER_MODEL_EN:
-                model  = config.WHISPER_MODEL_EN
-                lang   = "en"
+            en_model = (config.WHISPER_MODEL_EN or "").strip()
+            ja_model = (config.WHISPER_MODEL or WHISPER_MODEL or "").strip()
+
+            if use_english_model and en_model:
+                model = en_model
+                lang = "en"
                 prompt = "User talking to StackChan in English."
+                stt_profile = "EN"
             else:
-                model  = WHISPER_MODEL
+                model = ja_model
                 prompt = "日本語の日常会話です。"
+                stt_profile = "JA"
+                if use_english_model and not en_model:
+                    print(
+                        "[SPEECH] use_english_model=True だが WHISPER_MODEL_EN が空のため JA にフォールバック"
+                    )
+
+            print(
+                f"[SPEECH] start profile={stt_profile} "
+                f"use_english_model={use_english_model} "
+                f"lang={lang} "
+                f"language_code={language_code!r} "
+                f"bytes={bytes_len} "
+                f"model={model!r}"
+            )
 
             result = subprocess.run(
                 [
@@ -70,9 +89,9 @@ class SpeechService:
             transcript = transcript.strip()
 
             if not transcript:
-                print("[SPEECH] No speech detected")
+                print(f"[SPEECH] No speech detected profile={stt_profile} lang={lang}")
                 return None
-            
+
             # 許可リスト
             ALLOW_SHORT = [config.ASSISTANT_NAME] + config.SPEECH_ALLOW_SHORT
             # ノイズパターン（トイレ・水音・背景音の誤認識）
@@ -80,16 +99,17 @@ class SpeechService:
             EXACT_NOISE_PATTERNS = ["ごちそう"]
 
             if any(noise in transcript for noise in NOISE_PATTERNS):
-                print(f"[SPEECH] Noise detected, ignoring: '{transcript}'")
+                print(f"[SPEECH] Noise detected profile={stt_profile}, ignoring: '{transcript}'")
                 return None
             if transcript.strip() in EXACT_NOISE_PATTERNS:
-                print(f"[SPEECH] Exact noise detected, ignoring: '{transcript.strip()}'")
+                print(f"[SPEECH] Exact noise detected profile={stt_profile}, ignoring: '{transcript.strip()}'")
                 return None
             if len(transcript.strip()) <= 3:
                 if transcript.strip() not in ALLOW_SHORT:
-                    print(f"[SPEECH] Too short, ignoring: '{transcript.strip()}'")
+                    print(f"[SPEECH] Too short profile={stt_profile}, ignoring: '{transcript.strip()}'")
                     return None
 
+            print(f"[SPEECH] ok profile={stt_profile} lang={lang} text={transcript!r}")
             return transcript
 
         except subprocess.TimeoutExpired:

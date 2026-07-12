@@ -6,7 +6,7 @@ async function loadReading() {
   document.getElementById('reading-loading').style.display = '';
   document.getElementById('reading-content').style.display = 'none';
   try {
-    const res = await fetch('/admin/api/reading_map');
+    const res = await adminFetch('/admin/api/reading_map');
     readingData = await res.json();
     renderReading();
   } catch(e) {
@@ -45,7 +45,7 @@ function removeReadingRow(idx) {
 
 async function saveReading() {
   try {
-    const res = await fetch('/admin/api/reading_map', {
+    const res = await adminFetch('/admin/api/reading_map', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(readingData.filter(r => r.word))
