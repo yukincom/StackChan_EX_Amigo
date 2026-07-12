@@ -42,9 +42,22 @@ cp /path/to/StackChan_EX_Amigo/.env.example ~/env/.env
 ```
 このリポジトリでは、AIエージェント対策として、環境変数ファイルを `~/env/.env` に置く運用をしています。
 
-詳細設定はConfigUIから編集可能です。
+#### ADMIN_TOKEN（ConfigUI 認証・必須推奨）
 
-詳細は [docs/server.md](docs/server.md) を参照してください。
+LAN 上の他端末から `http://<server-ip>:5050/admin` を開く場合は **必須** です。未設定だと **localhost のみ** API が使えます。
+
+```bash
+# トークン生成
+openssl rand -hex 32
+
+# ~/env/.env または ~/env/.env.local に追記（値は生成結果）
+ADMIN_TOKEN=ここに生成した文字列
+```
+
+server（`app.py`）を再起動したあと、ブラウザの ConfigUI で同じ文字列を入力します。  
+詳細は [docs/server.md](docs/server.md) の「ConfigUI 認証」を参照してください。
+
+詳細設定は ConfigUI から編集可能です（API キー等の password 項目は GET で生値を返しません）。
 
 ### 2. `json_example` を実運用用へフォルダ名変更
 
@@ -103,9 +116,7 @@ python app.py
 
 `http://<server-ip>:5050/admin`
 
-`~/env/.env` に `ADMIN_TOKEN` を設定してください（`openssl rand -hex 32`）。
-LAN 上の他端末から開く場合は必須です。未設定時は localhost のみ API が使えます。
-詳細は [docs/server.md](docs/server.md) の ConfigUI 認証を参照。
+初回は `ADMIN_TOKEN` の入力を求められます（上記「環境変数を配置」参照）。
 
 ここから以下を調整できます。
 

@@ -42,7 +42,6 @@ class SpeechService:
                 model = ja_model
                 prompt = "日本語の日常会話です。"
                 stt_profile = "JA"
-                # 英語モード要求なのに EN モデル未設定 → JA に落ちたことを明示
                 if use_english_model and not en_model:
                     print(
                         "[SPEECH] use_english_model=True だが WHISPER_MODEL_EN が空のため JA にフォールバック"

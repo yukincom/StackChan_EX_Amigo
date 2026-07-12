@@ -266,17 +266,22 @@ def transcriptions():
         if not audio_content or len(audio_content) < config.SPEECH_MIN_BYTES:
             return jsonify({"error": {"message": "Audio too short", "type": "invalid_request_error"}}), 400
 
-        language = request.form.get("language", "ja")
-        # 診断用: 英語モード状態は見るが、現状この経路では use_english_model に渡していない
-        english_flag = is_english_mode()
+        form_language = request.form.get("language", "ja")
+        use_english = is_english_mode()
+        # 英語モード中はファームの language=ja 固定を無視して EN モデルへ
+        language = "en" if use_english else form_language
         print(
             f"[STT] endpoint=/v1/audio/transcriptions "
-            f"english_mode={english_flag} "
-            f"form_language={language!r} "
-            f"use_english_model_passed=False "
+            f"english_mode={use_english} "
+            f"form_language={form_language!r} "
+            f"use_english_model_passed={use_english} "
             f"bytes={len(audio_content)}"
         )
-        transcript = speech_service.transcribe(audio_content, language_code=language)
+        transcript = speech_service.transcribe(
+            audio_content,
+            language_code=language,
+            use_english_model=use_english,
+        )
         if not transcript:
             return jsonify({"error": {"message": "No speech detected", "type": "invalid_request_error"}}), 400
 

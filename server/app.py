@@ -172,9 +172,37 @@ def transcribe_speech():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
     
+# Vision: 無制限 Thread をやめ、単一ワーカー + キュー（満杯時は 429）
+import queue as _queue
+import threading as _threading
+
+_VISION_QUEUE: _queue.Queue = _queue.Queue(maxsize=2)
+_VISION_WORKER_STARTED = False
+
+
+def _vision_worker_loop():
+    while True:
+        item = _VISION_QUEUE.get()
+        try:
+            handle_vision_upload(*item)
+        except Exception:
+            traceback.print_exc()
+        finally:
+            _VISION_QUEUE.task_done()
+
+
+def _ensure_vision_worker():
+    global _VISION_WORKER_STARTED
+    if _VISION_WORKER_STARTED:
+        return
+    t = _threading.Thread(target=_vision_worker_loop, name="vision-worker", daemon=True)
+    t.start()
+    _VISION_WORKER_STARTED = True
+
+
 @app.route("/vision/upload", methods=["POST"])
 def vision_upload():
-    """M5Stack からの画像受信 → VLM解析 → TTS push（非同期）"""
+    """M5Stack からの画像受信 → VLM解析 → TTS push（非同期・キュー）"""
     try:
         try:
             image_data = request.get_data(cache=False, parse_form_data=False)
@@ -189,13 +217,17 @@ def vision_upload():
         speaker = request.args.get("s", "master")
         speaker_label = request.args.get("sl", "")
 
-        # 即 200 を返し、処理は別スレッドで
-        import threading
-        threading.Thread(
-            target=handle_vision_upload,
-            args=(image_data, requester, transcript, speaker, speaker_label),
-            daemon=True,
-        ).start()
+        _ensure_vision_worker()
+        try:
+            _VISION_QUEUE.put_nowait(
+                (image_data, requester, transcript, speaker, speaker_label)
+            )
+        except _queue.Full:
+            return jsonify({
+                "success": False,
+                "error": "vision_busy",
+                "message": "Vision is processing; try again shortly",
+            }), 429
 
         return jsonify({"success": True, "status": "processing"})
 

@@ -51,18 +51,30 @@ today.mdは以下のディレクトリに移動してください。
 
 #### ConfigUI 認証（ADMIN_TOKEN）
 
-`/admin/api/*` は認証必須です。`~/env/.env` に次を設定してください。
+`/admin/api/*` は認証必須です。
 
-```env
-# 生成例: openssl rand -hex 32
-ADMIN_TOKEN=your-long-random-token
+**手順**
+
+```bash
+# 1. トークン生成
+openssl rand -hex 32
+
+# 2. ~/env/.env または ~/env/.env.local に書く（.env.example の ADMIN_TOKEN= 行）
+ADMIN_TOKEN=（生成した文字列・引用符不要）
+
+# 3. server 再起動
+cd server && python app.py
 ```
 
-- ブラウザの ConfigUI では起動時にトークン入力を求められます（`sessionStorage` に保持）
-- API 直叩き時はヘッダを付けます:
+ブラウザで `http://(serverのIP):5050/admin` を開き、同じ文字列を入力します（`sessionStorage` に保持）。
+
+**ルール**
+
+- API 直叩き時のヘッダ:
   - 推奨: `Authorization: Bearer <ADMIN_TOKEN>`
   - 互換: `X-Admin-Token: <ADMIN_TOKEN>`
-- `ADMIN_TOKEN` 未設定のときは **localhost からのみ** API が使えます（LAN 上の他端末からは 401）
+- `ADMIN_TOKEN` **未設定**: **localhost からのみ** API 可（LAN 他端末は 401）
+- `ADMIN_TOKEN` **設定済み**: 全クライアントでトークン必須（localhost 含む）
 - password 型の設定（API キー等）は GET で生値を返しません。空のまま保存すると「変更なし」です
 
 #### 音声 proxy / ファイルパスの制限
