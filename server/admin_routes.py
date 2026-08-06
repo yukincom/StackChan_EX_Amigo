@@ -200,19 +200,81 @@ def save_reading_map():
 
 # ===== announcements.json =====
 
+def _normalize_announcements_payload(raw) -> list[dict]:
+    """定時コール配列を正規化。配列以外は拒否相当で空にせず TypeError。"""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("announcements must be a JSON array")
+
+    cleaned: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            hour = int(item.get("hour", 0))
+            minute = int(item.get("minute", 0))
+        except (TypeError, ValueError):
+            continue
+        hour = max(0, min(23, hour))
+        minute = max(0, min(59, minute))
+        # 対象フラグ（キー名は互換のため _only のまま。意味は「対象にする」）
+        # 明示キーが無い旧データ: 両方 true（毎日）
+        has_w = "weekday_only" in item
+        has_h = "holiday_only" in item
+        if not has_w and not has_h:
+            weekday_on, holiday_on = True, True
+        else:
+            weekday_on = bool(item.get("weekday_only", False))
+            holiday_on = bool(item.get("holiday_only", False))
+            # 旧仕様「両方 false = 毎日」。明示 long vacation 以外は両方 true へ移行
+            if (
+                not weekday_on
+                and not holiday_on
+                and not item.get("_explicit_long_vacation")
+            ):
+                weekday_on, holiday_on = True, True
+
+        entry = {
+            "hour": hour,
+            "minute": minute,
+            "message": str(item.get("message", "") or ""),
+            "with_weather": bool(item.get("with_weather", False)),
+            "weekday_only": weekday_on,
+            "holiday_only": holiday_on,
+        }
+        if item.get("_explicit_long_vacation") and not weekday_on and not holiday_on:
+            entry["_explicit_long_vacation"] = True
+        wt = item.get("weather_target")
+        if entry["with_weather"] and wt in ("today", "tomorrow"):
+            entry["weather_target"] = wt
+        cleaned.append(entry)
+    return cleaned
+
+
 @admin_bp.route("/admin/api/announcements", methods=["GET"])
 def get_announcements():
     data = _read_json(_ANNOUNCEMENTS_JSON_PATH)
     if data is None:
+        data = []
+    if not isinstance(data, list):
+        data = []
+    try:
+        data = _normalize_announcements_payload(data)
+    except ValueError:
         data = []
     return jsonify(data)
 
 @admin_bp.route("/admin/api/announcements", methods=["POST"])
 def save_announcements():
     try:
+        raw = request.get_json(force=True)
+        cleaned = _normalize_announcements_payload(raw)
         _ANNOUNCEMENTS_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _write_json(_ANNOUNCEMENTS_JSON_PATH, request.get_json(force=True))
-        return jsonify({"ok": True})
+        _write_json(_ANNOUNCEMENTS_JSON_PATH, cleaned)
+        return jsonify({"ok": True, "announcements": cleaned, "count": len(cleaned)})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
