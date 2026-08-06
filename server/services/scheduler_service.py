@@ -28,18 +28,41 @@ def is_holiday():
     return today.weekday() >= 5 or jpholiday.is_holiday(today)
 
 
-def scheduled_announcement(message: str, with_weather: bool = False, weekday_only: bool = False, weather_target: str = "today", holiday_only: bool = False):
-    """定時アナウンス（Gemini不使用・スクリプト固定）"""
-    if weekday_only and is_holiday():
-        print(f"[ANNOUNCE] 休日のためスキップ: {message[:20]}")
+def scheduled_announcement(
+    message: str,
+    with_weather: bool = False,
+    weekday_only: bool = True,
+    weather_target: str = "today",
+    holiday_only: bool = True,
+):
+    """定時アナウンス（Gemini不使用・スクリプト固定）
+
+    weekday_only / holiday_only は「のみ」ではなく「対象日」フラグ:
+      - 平日 ON  → 平日（土日祝以外）に実行
+      - 祝日 ON  → 土日・祝日に実行
+      - 両方 ON  → 毎日
+      - 両方 OFF → 長期休暇扱い（スキップ）
+    """
+    on_weekday = bool(weekday_only)
+    on_holiday = bool(holiday_only)
+
+    # 両方オフ = 長期休暇（アナウンスしない）
+    if not on_weekday and not on_holiday:
+        print(f"[ANNOUNCE] 長期休暇のためスキップしました: {message[:30]}")
         return
-    if holiday_only and not is_holiday():
-        print(f"[ANNOUNCE] 平日のためスキップ: {message[:20]}")
+
+    today_is_holiday = is_holiday()
+    if today_is_holiday and not on_holiday:
+        print(f"[ANNOUNCE] 祝日は対象外のためスキップ: {message[:30]}")
         return
+    if (not today_is_holiday) and not on_weekday:
+        print(f"[ANNOUNCE] 平日は対象外のためスキップ: {message[:30]}")
+        return
+
     try:
         text = message
         if with_weather:
-            weather = get_weather_response(weather_target) 
+            weather = get_weather_response(weather_target)
             if weather:
                 text += weather
 
@@ -109,18 +132,31 @@ def setup_scheduler(notification_enabled=True):
 
     # 定時アナウンス（リストをループで登録）
     for item in config.ANNOUNCEMENTS:
+        if "weekday_only" not in item and "holiday_only" not in item:
+            weekday_on, holiday_on = True, True
+        else:
+            weekday_on = bool(item.get("weekday_only", False))
+            holiday_on = bool(item.get("holiday_only", False))
+            # 旧仕様「両方 false = 毎日」。明示 long vacation 以外は毎日へ
+            if (
+                not weekday_on
+                and not holiday_on
+                and not item.get("_explicit_long_vacation")
+            ):
+                weekday_on, holiday_on = True, True
+
         scheduler.add_job(
             scheduled_announcement, "cron",
             hour=item["hour"], minute=item["minute"],
             kwargs={
-                "message":      item["message"],
-                "with_weather":   item.get("with_weather", False),
-                "weekday_only":   item.get("weekday_only", False),
-                "weather_target": item.get("weather_target", "today"), 
-                "holiday_only":   item.get("holiday_only", False),     
-            }
+                "message": item["message"],
+                "with_weather": item.get("with_weather", False),
+                "weekday_only": weekday_on,
+                "weather_target": item.get("weather_target", "today"),
+                "holiday_only": holiday_on,
+            },
         )
-    print("[SCHEDULER] 定時アナウンス ")
+    print(f"[SCHEDULER] 定時アナウンス {len(config.ANNOUNCEMENTS)} 件登録")
 
     scheduler.start()
 
