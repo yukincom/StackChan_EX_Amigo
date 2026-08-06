@@ -310,11 +310,13 @@ def process_chat(user_text, speaker="master", generate_voice_flag=False, speaker
             f"（camera trigger: {camera_mode}）",
             speaker_label=label,
         )
+        print(f"[AI-CAMERA] mode={camera_mode} source=keyword t={user_text[:40]!r}")
         return _camera_trigger_result(
             camera_mode,
             requester="user",
             speaker=speaker,
             speaker_label=label,
+            announce_endpoint=config.AI_VISION_TRIGGER_ENDPOINT,
         )
 
     # 天気は視覚ヒューリスティックより先（「今日の天気は何？」誤爆防止）

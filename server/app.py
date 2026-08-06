@@ -175,18 +175,29 @@ def transcribe_speech():
 # Vision: 無制限 Thread をやめ、単一ワーカー + キュー（満杯時は 429）
 import queue as _queue
 import threading as _threading
+import time as _time
 
 _VISION_QUEUE: _queue.Queue = _queue.Queue(maxsize=2)
 _VISION_WORKER_STARTED = False
+_VISION_JOB_SEQ = 0
+_VISION_JOB_LOCK = _threading.Lock()
 
 
 def _vision_worker_loop():
     while True:
         item = _VISION_QUEUE.get()
+        job_id, image_data, requester, transcript, speaker, speaker_label = item
+        t0 = _time.monotonic()
+        print(
+            f"[VISION-Q] start job={job_id} qsize={_VISION_QUEUE.qsize()} "
+            f"requester={requester} t={transcript[:40]!r} bytes={len(image_data)}"
+        )
         try:
-            handle_vision_upload(*item)
+            handle_vision_upload(image_data, requester, transcript, speaker, speaker_label)
+            print(f"[VISION-Q] done job={job_id} in {_time.monotonic() - t0:.1f}s")
         except Exception:
             traceback.print_exc()
+            print(f"[VISION-Q] fail job={job_id} in {_time.monotonic() - t0:.1f}s")
         finally:
             _VISION_QUEUE.task_done()
 
@@ -198,11 +209,26 @@ def _ensure_vision_worker():
     t = _threading.Thread(target=_vision_worker_loop, name="vision-worker", daemon=True)
     t.start()
     _VISION_WORKER_STARTED = True
+    print("[VISION-Q] worker started")
+
+
+@app.route("/vision/status", methods=["GET"])
+def vision_status():
+    """診断用: キューと VLM の状態"""
+    from services.vlm_service import vlm_status
+
+    return jsonify({
+        "queue_size": _VISION_QUEUE.qsize(),
+        "queue_max": _VISION_QUEUE.maxsize,
+        "worker_started": _VISION_WORKER_STARTED,
+        "vlm": vlm_status(),
+    })
 
 
 @app.route("/vision/upload", methods=["POST"])
 def vision_upload():
     """M5Stack からの画像受信 → VLM解析 → TTS push（非同期・キュー）"""
+    global _VISION_JOB_SEQ
     try:
         try:
             image_data = request.get_data(cache=False, parse_form_data=False)
@@ -218,18 +244,29 @@ def vision_upload():
         speaker_label = request.args.get("sl", "")
 
         _ensure_vision_worker()
+        with _VISION_JOB_LOCK:
+            _VISION_JOB_SEQ += 1
+            job_id = _VISION_JOB_SEQ
         try:
             _VISION_QUEUE.put_nowait(
-                (image_data, requester, transcript, speaker, speaker_label)
+                (job_id, image_data, requester, transcript, speaker, speaker_label)
             )
         except _queue.Full:
+            print(
+                f"[VISION-Q] reject job={job_id} queue_full "
+                f"t={transcript[:40]!r} bytes={len(image_data)}"
+            )
             return jsonify({
                 "success": False,
                 "error": "vision_busy",
                 "message": "Vision is processing; try again shortly",
             }), 429
 
-        return jsonify({"success": True, "status": "processing"})
+        print(
+            f"[VISION-Q] enqueued job={job_id} qsize={_VISION_QUEUE.qsize()} "
+            f"t={transcript[:40]!r} bytes={len(image_data)}"
+        )
+        return jsonify({"success": True, "status": "processing", "job_id": job_id})
 
     except Exception as e:
         traceback.print_exc()
