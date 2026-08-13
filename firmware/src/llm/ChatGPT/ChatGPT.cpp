@@ -87,6 +87,9 @@ const String json_ChatString =
 ChatGPT::ChatGPT(llm_param_t param, int _promptMaxSize)
   : LLMBase(param, _promptMaxSize)
 {
+  for (int i = 0; i < LLM_N_MCP_SERVERS_MAX; ++i) {
+    mcpClient[i] = nullptr;
+  }
   initMcpClientList(mcpClient, param.llm_conf.mcpServer, param.llm_conf.nMcpServers);
   fnCall = new FunctionCall(param, this, mcpClient);
   //fnCall->init_func_call_settings(robot->m_config);
@@ -166,6 +169,9 @@ void ChatGPT::load_role(){
    * MCP tools listをfunctionとして挿入
    */
   for(int s=0; s<param.llm_conf.nMcpServers; s++){
+    if (param.llm_conf.mcpServer[s].disabled || mcpClient[s] == nullptr) {
+      continue;
+    }
     if(!mcpClient[s]->isConnected()){
       continue;
     }
@@ -349,9 +355,7 @@ void ChatGPT::chat(String text, const char *base64_buf) {
 
 
     if(calledFunc == ""){   // Function Callなし ／ Function Call繰り返しの完了
-      if (response == "") {
-        mark_camera_trigger_awaiting();
-      } else {
+      if (response != "") {
         clear_camera_trigger_awaiting();
       }
       if (response != "") {

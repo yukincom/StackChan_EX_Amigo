@@ -25,9 +25,18 @@ extern void sw_tone();
 static String avatarText;
 
 // タイマー機能関連
-TimerHandle_t xAlarmTimer;
+TimerHandle_t xAlarmTimer = nullptr;
 bool alarmTimerCallbacked = false;
 bool alarmTimerCanceled = false;
+enum class TimerAction : uint8_t {
+  None,
+  Alarm,
+  Shutdown,
+};
+static portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+static TimerAction activeTimerAction = TimerAction::None;
+static TimerHandle_t expiredTimer = nullptr;
+static TimerAction expiredTimerAction = TimerAction::None;
 void alarmTimerCallback(TimerHandle_t xTimer);
 void powerOffTimerCallback(TimerHandle_t xTimer);
 
@@ -216,19 +225,91 @@ const String json_Functions =
 "]";
 
 
-void alarmTimerCallback(TimerHandle_t _xTimer){
-  xAlarmTimer = NULL;
-  //Serial.println("時間になりました。");
-  alarmTimerCallbacked = true;
+static void enqueueTimerEvent(TimerHandle_t timer, TimerAction action) {
+  portENTER_CRITICAL(&timerMux);
+  if (xAlarmTimer == timer) {
+    xAlarmTimer = nullptr;
+    activeTimerAction = TimerAction::None;
+    expiredTimer = timer;
+    expiredTimerAction = action;
+  }
+  portEXIT_CRITICAL(&timerMux);
 }
 
-void powerOffTimerCallback(TimerHandle_t _xTimer){
-  xAlarmTimer = NULL;
-  //Serial.println("おやすみなさい。");
+void alarmTimerCallback(TimerHandle_t timer){
+  enqueueTimerEvent(timer, TimerAction::Alarm);
+}
+
+void powerOffTimerCallback(TimerHandle_t timer){
+  enqueueTimerEvent(timer, TimerAction::Shutdown);
+}
+
+void process_function_call_events(void){
+  TimerHandle_t timer = nullptr;
+  TimerAction action = TimerAction::None;
+  portENTER_CRITICAL(&timerMux);
+  if (expiredTimer != nullptr) {
+    timer = expiredTimer;
+    action = expiredTimerAction;
+    expiredTimer = nullptr;
+    expiredTimerAction = TimerAction::None;
+  }
+  portEXIT_CRITICAL(&timerMux);
+
+  if (timer == nullptr) {
+    return;
+  }
+  if (xTimerDelete(timer, pdMS_TO_TICKS(100)) != pdPASS) {
+    Serial.println("Failed to delete expired timer");
+  }
+  if (action == TimerAction::Alarm) {
+    alarmTimerCallbacked = true;
+    return;
+  }
+  if (action != TimerAction::Shutdown) {
+    return;
+  }
   avatar.setExpression(Expression::Sleepy);
   playLocalPrompt("shutdown");
   delay(2000);
   M5.Power.powerOff();
+}
+
+static bool createAndStartTimer(int32_t time, TimerAction action){
+  TimerCallbackFunction_t callback = action == TimerAction::Alarm
+      ? alarmTimerCallback
+      : powerOffTimerCallback;
+  TickType_t period = pdMS_TO_TICKS(static_cast<uint32_t>(time) * 1000UL);
+  TimerHandle_t timer = xTimerCreate("Timer", period, pdFALSE, nullptr, callback);
+  if (timer == nullptr) {
+    return false;
+  }
+
+  bool published = false;
+  portENTER_CRITICAL(&timerMux);
+  if (xAlarmTimer == nullptr && expiredTimer == nullptr) {
+    xAlarmTimer = timer;
+    activeTimerAction = action;
+    published = true;
+  }
+  portEXIT_CRITICAL(&timerMux);
+  if (!published) {
+    xTimerDelete(timer, pdMS_TO_TICKS(100));
+    return false;
+  }
+
+  if (xTimerStart(timer, pdMS_TO_TICKS(100)) == pdPASS) {
+    return true;
+  }
+
+  portENTER_CRITICAL(&timerMux);
+  if (xAlarmTimer == timer) {
+    xAlarmTimer = nullptr;
+    activeTimerAction = TimerAction::None;
+  }
+  portEXIT_CRITICAL(&timerMux);
+  xTimerDelete(timer, pdMS_TO_TICKS(100));
+  return false;
 }
 
 
@@ -270,6 +351,9 @@ String FunctionCall::exec_calledFunc(const char* name, const char* args){
     for(int s=0; s < _param.llm_conf.nMcpServers; s++){
       if(true == _param.llm_conf.mcpServer[s].disabled){
           continue;
+      }
+      if (_mcpClient == nullptr || _mcpClient[s] == nullptr) {
+        continue;
       }
       if(_mcpClient[s]->search_tool(String(name))){
         DynamicJsonDocument tool_params(512);
@@ -371,27 +455,32 @@ String FunctionCall::fn_update_memory(LLMBase* llm, const char* memory){
 String FunctionCall::timer(int32_t time, const char* action){
   String response = "";
 
-  if(xAlarmTimer != NULL){
+  static constexpr int32_t kMaxTimerSeconds = INT32_MAX / 1000;
+  if (time <= 0 || time > kMaxTimerSeconds || action == nullptr) {
+    return "タイマーの時間指定が不正です。";
+  }
+  if (strcmp(action, "alarm") != 0 && strcmp(action, "shutdown") != 0) {
+    return "タイマーの動作指定が不正です。";
+  }
+
+  portENTER_CRITICAL(&timerMux);
+  bool timerRunning = xAlarmTimer != nullptr || expiredTimer != nullptr;
+  portEXIT_CRITICAL(&timerMux);
+  if(timerRunning){
     response = "別のタイマーを実行中です。";
   }
   else{
     if(strcmp(action, "alarm") == 0){
-      xAlarmTimer = xTimerCreate("Timer", time * 1000, pdFALSE, 0, alarmTimerCallback);
-      if(xAlarmTimer != NULL){
-        xTimerStart(xAlarmTimer, 0);
-        response = String("アラーム設定成功。") ;
-      }
-      else{
+      if (createAndStartTimer(time, TimerAction::Alarm)) {
+        response = String("アラーム設定成功。");
+      } else {
         response = "タイマーの設定が失敗しました。";
       }
     }
     else if(strcmp(action, "shutdown") == 0){
-      xAlarmTimer = xTimerCreate("Timer", time * 1000, pdFALSE, 0, powerOffTimerCallback);
-      if(xAlarmTimer != NULL){
-        xTimerStart(xAlarmTimer, 0);
+      if (createAndStartTimer(time, TimerAction::Shutdown)) {
         response = String(time) + "秒後にパワーオフします。";
-      }
-      else{
+      } else {
         response = "タイマー設定が失敗しました。";
       }
     }
@@ -402,19 +491,46 @@ String FunctionCall::timer(int32_t time, const char* action){
 }
 
 String FunctionCall::timer_change(int32_t time){
-  String response = "";
-  if(time == 0){
-    xTimerDelete(xAlarmTimer, 0);
-    xAlarmTimer = NULL;
-    response = "タイマーをキャンセルしました。";
-    alarmTimerCanceled = true;
-  }
-  else{
-    xTimerChangePeriod(xAlarmTimer, time * 1000, 0);
-    response = "タイマーの設定時間を" + String(time) + "秒に変更しました。";
+  static constexpr int32_t kMaxTimerSeconds = INT32_MAX / 1000;
+  if (time < 0 || time > kMaxTimerSeconds) {
+    return "タイマーの時間指定が不正です。";
   }
 
-  return response;
+  TimerHandle_t timer = nullptr;
+  TimerAction action = TimerAction::None;
+  portENTER_CRITICAL(&timerMux);
+  if (xAlarmTimer != nullptr) {
+    timer = xAlarmTimer;
+    action = activeTimerAction;
+    xAlarmTimer = nullptr;
+    activeTimerAction = TimerAction::None;
+  }
+  portEXIT_CRITICAL(&timerMux);
+  if (timer == nullptr) {
+    return "実行中のタイマーはありません。";
+  }
+
+  if (xTimerDelete(timer, pdMS_TO_TICKS(100)) != pdPASS) {
+    portENTER_CRITICAL(&timerMux);
+    if (xAlarmTimer == nullptr) {
+      xAlarmTimer = timer;
+      activeTimerAction = action;
+    }
+    portEXIT_CRITICAL(&timerMux);
+    return time == 0
+        ? "タイマーのキャンセルに失敗しました。"
+        : "タイマーの設定変更に失敗しました。";
+  }
+
+  if(time == 0){
+    alarmTimerCanceled = true;
+    return "タイマーをキャンセルしました。";
+  }
+
+  if (!createAndStartTimer(time, action)) {
+    return "タイマーの設定変更に失敗しました。";
+  }
+  return "タイマーの設定時間を" + String(time) + "秒に変更しました。";
 }
 
 
@@ -625,7 +741,8 @@ String FunctionCall::ask(const char* text){
       : STTErrorType::None;
     if (sttError == STTErrorType::Connection
         || sttError == STTErrorType::Http
-        || sttError == STTErrorType::Parse) {
+        || sttError == STTErrorType::Parse
+        || sttError == STTErrorType::Memory) {
       avatar.setExpression(Expression::Confusion);
       playLocalPrompt("server_error");
     } else {

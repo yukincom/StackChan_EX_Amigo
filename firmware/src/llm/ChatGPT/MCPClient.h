@@ -35,6 +35,7 @@ private:
     String toolNameList[TOOLS_LIST_MAX];
 
     void pole_stream(String& requestJson);
+    bool wait_for_response(String& requestJson);
 
 public:
 

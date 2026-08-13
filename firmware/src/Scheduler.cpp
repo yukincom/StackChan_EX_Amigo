@@ -19,7 +19,7 @@ void add_schedule(ScheduleBase* schedule)
 
 ScheduleBase* get_schedule(int idx)
 {
-    if(idx > MAX_SCHED_NUM){
+    if(idx < 0 || idx >= MAX_SCHED_NUM){
         return nullptr;
     }
     return scheduleList[idx];
@@ -228,4 +228,3 @@ void ScheduleIntervalMinute::run(struct tm now_time)
 
     }
 }
-

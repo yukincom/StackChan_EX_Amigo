@@ -2,6 +2,7 @@
 #include <HTTPClient.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
+#include <new>
 #include "Whisper.h"
 #include "rootCA/rootCACertificate.h"
 #include "share/HttpUtil.h"
@@ -18,6 +19,11 @@ Whisper::~Whisper() {
 
 String Whisper::Transcribe(AudioWhisper* audio) {
   clearLastError();
+  if (audio == nullptr || !audio->IsReady()) {
+    Serial.println("Whisper: recording buffer is unavailable");
+    lastError = STTErrorType::Memory;
+    return "";
+  }
   String api_url = param.stt_conf.base_url != ""
     ? join_url(param.stt_conf.base_url, "/v1/audio/transcriptions")
     : String(DEFAULT_API_URL);
@@ -37,11 +43,15 @@ String Whisper::Transcribe(AudioWhisper* audio) {
     "Content-Type: application/octet-stream\r\n\r\n";
   String footer = "\r\n--" + String(boundary) + "--\r\n";
 
-  int body_size = header.length() + audio->GetSize() + footer.length();
-  uint8_t *body = (uint8_t *)malloc(body_size);
+  size_t body_size = header.length() + audio->GetSize() + footer.length();
+  uint8_t *body = static_cast<uint8_t*>(
+      heap_caps_malloc(body_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (body == nullptr) {
+    body = static_cast<uint8_t*>(heap_caps_malloc(body_size, MALLOC_CAP_8BIT));
+  }
   if (!body) {
     Serial.println("Whisper: failed to allocate request body");
-    lastError = STTErrorType::Http;
+    lastError = STTErrorType::Memory;
     return "";
   }
 
@@ -66,7 +76,7 @@ String Whisper::Transcribe(AudioWhisper* audio) {
     HTTPClient http;
     http.setTimeout(15000);
     if (!http.begin(client, api_url)) {
-      free(body);
+      heap_caps_free(body);
       Serial.println("Whisper: Connection failed!");
       lastError = STTErrorType::Connection;
       return "";
@@ -89,7 +99,7 @@ String Whisper::Transcribe(AudioWhisper* audio) {
     HTTPClient http;
     http.setTimeout(15000);
     if (!http.begin(client, api_url)) {
-      free(body);
+      heap_caps_free(body);
       Serial.println("Whisper: Connection failed!");
       lastError = STTErrorType::Connection;
       return "";
@@ -109,7 +119,7 @@ String Whisper::Transcribe(AudioWhisper* audio) {
     http.end();
   }
 
-  free(body);
+  heap_caps_free(body);
   if (httpCode <= 0) {
     lastError = STTErrorType::Http;
     return "";
@@ -143,9 +153,21 @@ String Whisper::Transcribe(AudioWhisper* audio) {
 
 String Whisper::speech_to_text(){
   String ret;
-  AudioWhisper* audio = new AudioWhisper();
+  clearLastError();
+  AudioWhisper* audio = new (std::nothrow) AudioWhisper();
+  if (audio == nullptr || !audio->IsReady()) {
+    Serial.println("Whisper: failed to prepare recording buffer");
+    lastError = STTErrorType::Memory;
+    delete audio;
+    return "";
+  }
   Serial.println("\r\nRecord start!\r\n");
-  audio->Record();
+  if (!audio->Record()) {
+    Serial.println("Whisper: recording failed");
+    lastError = STTErrorType::Memory;
+    delete audio;
+    return "";
+  }
   Serial.println("Record end\r\n");
   Serial.println("音声認識開始");
   ret = Transcribe(audio);

@@ -11,8 +11,9 @@ class AudioWhisper {
 
   const byte* GetBuffer() const { return record_buffer; }
   size_t GetSize() const;
+  bool IsReady() const { return record_buffer != nullptr; }
 
-  void Record();
+  bool Record();
 };
 
 #endif // _AUDIOWHISPER_H

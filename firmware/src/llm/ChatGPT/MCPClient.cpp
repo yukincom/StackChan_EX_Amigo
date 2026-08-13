@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <M5Unified.h>
+#include <new>
 #include "MCPClient.h"
 
 HTTPClient http;
@@ -47,15 +48,19 @@ String toolCallJson =
 
 
 String g_mcpInitResult = "";
+static constexpr uint32_t MCP_RESPONSE_TIMEOUT_MS = 15000;
+static constexpr uint32_t MCP_CONNECT_TIMEOUT_MS = 5000;
+static constexpr uint16_t MCP_HTTP_TIMEOUT_MS = 5000;
 
 void initMcpClientList(MCPClient** mcpClient, mcp_server_s* mcpParam, int nMcp)
 {
   M5.Lcd.printf("Connect MCP Servers (%d)\n", nMcp);
   Serial.printf("\nConnect MCP Servers (%d)\n", nMcp);
   for(int i=0; i<nMcp; i++){
+    mcpClient[i] = nullptr;
     if(false == mcpParam[i].disabled){
-      mcpClient[i] = new MCPClient(mcpParam[i].url, mcpParam[i].port);
-      if(mcpClient[i]->isConnected()){
+      mcpClient[i] = new (std::nothrow) MCPClient(mcpParam[i].url, mcpParam[i].port);
+      if(mcpClient[i] != nullptr && mcpClient[i]->isConnected()){
         M5.Lcd.printf("  %s: connected\n", mcpParam[i].name.c_str());
         Serial.printf("  %s: connected\n", mcpParam[i].name.c_str());
         g_mcpInitResult += mcpParam[i].name + ": connected\n";
@@ -95,6 +100,13 @@ MCPClient::MCPClient(String _mcpAddr, uint16_t _mcpPort)
   DeserializationError error = deserializeJson(toolsListDoc, result.c_str());
   if (error) {
     Serial.printf("MCPClient: JSON deserialization error %d\n", error);
+    _isConnected = false;
+    return;
+  }
+  if (!toolsListDoc["error"].isNull()) {
+    Serial.println("MCPClient: server returned a JSON-RPC error");
+    _isConnected = false;
+    return;
   }
 
   //String json_str;
@@ -119,6 +131,12 @@ MCPClient::MCPClient(String _mcpAddr, uint16_t _mcpPort)
 
 }
 
+MCPClient::~MCPClient()
+{
+  stream.stop();
+  http.end();
+}
+
 bool MCPClient::search_tool(String name)
 {
   for(int i=0; i<TOOLS_LIST_MAX; i++){
@@ -140,16 +158,14 @@ String MCPClient::mcp_list_tools()
   request_complete = false;
   tool_response = String("");
 
-  if (stream.connect(mcpAddr.c_str(), mcpPort)) {
+  stream.setTimeout(1);
+  if (stream.connect(mcpAddr.c_str(), mcpPort, MCP_CONNECT_TIMEOUT_MS)) {
     stream.print(String("GET ") + "/sse" + " HTTP/1.1\r\n" +
                   "Host: " + mcpAddr + "\r\n" +
                   "Accept: text/event-stream\r\n" +
                   "Connection: keep-alive\r\n\r\n");
 
-    while(!request_complete){
-      pole_stream(toolsListJson);
-      delay(100);
-    }
+    wait_for_response(toolsListJson);
 
     stream.stop();
     http.end();
@@ -185,22 +201,34 @@ String MCPClient::mcp_call_tool(DynamicJsonDocument& tool_params)
   //Serial.println(json_str);
 
 
-  if (stream.connect(mcpAddr.c_str(), mcpPort)) {
+  stream.setTimeout(1);
+  if (stream.connect(mcpAddr.c_str(), mcpPort, MCP_CONNECT_TIMEOUT_MS)) {
     stream.print(String("GET ") + "/sse" + " HTTP/1.1\r\n" +
                   "Host: " + mcpAddr + "\r\n" +
                   "Accept: text/event-stream\r\n" +
                   "Connection: keep-alive\r\n\r\n");
 
-    while(!request_complete){
-      pole_stream(json_str);
-      delay(100);
-    }
+    wait_for_response(json_str);
 
     stream.stop();
     http.end();
   }
 
   return tool_response;
+}
+
+bool MCPClient::wait_for_response(String& requestJson)
+{
+  const uint32_t startedAt = millis();
+  while (!request_complete
+         && static_cast<uint32_t>(millis() - startedAt) < MCP_RESPONSE_TIMEOUT_MS) {
+    pole_stream(requestJson);
+    delay(100);
+  }
+  if (!request_complete) {
+    Serial.printf("MCP request timed out after %u ms\n", MCP_RESPONSE_TIMEOUT_MS);
+  }
+  return request_complete;
 }
 
 void MCPClient::pole_stream(String& requestJson)
@@ -219,6 +247,8 @@ void MCPClient::pole_stream(String& requestJson)
         mcpPostUrl = String("http://") + mcpAddr + ":" + String(mcpPort) + data;
         Serial.printf("MCP POST URL: %s\n", mcpPostUrl.c_str());
         if (http.begin(mcpPostUrl)) {
+          http.setConnectTimeout(MCP_CONNECT_TIMEOUT_MS);
+          http.setTimeout(MCP_HTTP_TIMEOUT_MS);
           http.addHeader("Content-Type", "application/json");
           int httpCode = http.POST((uint8_t *)mcpInitJson.c_str(), mcpInitJson.length());
         
@@ -238,7 +268,7 @@ void MCPClient::pole_stream(String& requestJson)
 
       }
       else if(waiting_tool_response){
-        if(data.indexOf("result") != -1){
+        if(data.indexOf("\"result\"") != -1 || data.indexOf("\"error\"") != -1){
           Serial.printf("tool response received\n");
           waiting_tool_response = false;
           request_complete = true;
@@ -249,4 +279,3 @@ void MCPClient::pole_stream(String& requestJson)
   }
 
 }
-

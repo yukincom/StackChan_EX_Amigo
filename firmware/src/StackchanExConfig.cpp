@@ -56,7 +56,7 @@ void StackchanExConfig::secretConfigNotFoundCallback(void)
 
         read_line_from_buf(nullptr, data);
         _secret_config.wifi_info.password = String(data);
-        Serial.printf("Key: %s\n",data);
+        Serial.printf("Key: %s\n", data[0] != '\0' ? "(set)" : "(empty)");
     }
 
 }
@@ -101,7 +101,14 @@ void StackchanExConfig::setExtendSettings(DynamicJsonDocument doc)
     _ex_parameters.llm.type         = doc["llm"]["type"].as<int>();
     _ex_parameters.llm.model        = doc["llm"]["model"].as<String>();
     _ex_parameters.llm.base_url     = doc["llm"]["base_url"].as<String>();
-    _ex_parameters.llm.nMcpServers  = doc["llm"]["mcpServers"].size();
+    const size_t configuredMcpServers = doc["llm"]["mcpServers"].size();
+    _ex_parameters.llm.nMcpServers = configuredMcpServers < LLM_N_MCP_SERVERS_MAX
+        ? static_cast<int>(configuredMcpServers)
+        : LLM_N_MCP_SERVERS_MAX;
+    if (configuredMcpServers > LLM_N_MCP_SERVERS_MAX) {
+        M5_LOGW("MCP server count (%u) exceeds limit (%d); extra entries are ignored",
+                static_cast<unsigned>(configuredMcpServers), LLM_N_MCP_SERVERS_MAX);
+    }
     for(int i=0; i<_ex_parameters.llm.nMcpServers; i++){
         _ex_parameters.llm.mcpServer[i].name = doc["llm"]["mcpServers"][i]["name"].as<String>();
         _ex_parameters.llm.mcpServer[i].disabled = doc["llm"]["mcpServers"][i]["disabled"].as<bool>();

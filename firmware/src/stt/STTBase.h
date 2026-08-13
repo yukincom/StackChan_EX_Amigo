@@ -16,6 +16,7 @@ enum class STTErrorType : uint8_t {
   Connection,
   Http,
   Parse,
+  Memory,
 };
 
 class STTBase{

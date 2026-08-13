@@ -25,6 +25,7 @@ extern bool wakeword_enable_required;
 extern bool wakeword_disable_required;
 extern bool alarmTimerCallbacked;
 extern bool alarmTimerCanceled;
+extern void process_function_call_events(void);
 
 
 class FunctionCall{

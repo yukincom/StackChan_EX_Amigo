@@ -22,6 +22,7 @@ protected:
 public:
     bool destroy;
     ScheduleBase();
+    virtual ~ScheduleBase() = default;
     virtual void run(struct tm now_time);
     SCHED_TYPE get_sched_type(){ return sched_type; };
 

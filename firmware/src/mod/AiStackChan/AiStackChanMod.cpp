@@ -40,7 +40,8 @@ static bool is_stt_backend_error() {
   auto error = robot->stt->getLastError();
   return error == STTErrorType::Connection
       || error == STTErrorType::Http
-      || error == STTErrorType::Parse;
+      || error == STTErrorType::Parse
+      || error == STTErrorType::Memory;
 }
 
 static void restore_post_chat_expression() {

@@ -6,6 +6,7 @@
 #include <AudioOutput.h>
 #include <AudioFileSourceBuffer.h>
 #include <AudioGeneratorMP3.h>
+#include <new>
 #include "AudioFileSourceHTTPSStream.h"
 #include "AudioFileSourceSD.h"
 #include "AudioFileSourceSPIFFS.h"
@@ -23,36 +24,53 @@ extern bool servo_home;
 uint8_t m5spk_virtual_channel = 0;
 
 AudioOutputM5Speaker out(&M5.Speaker, m5spk_virtual_channel);
-AudioGeneratorMP3 *mp3;
+AudioGeneratorMP3 *mp3 = nullptr;
 static bool s_skip_next_tts_speech = false;
 
 int preallocateBufferSize = 30*1024;
-uint8_t *preallocateBuffer;
+uint8_t *preallocateBuffer = nullptr;
 
 
 
 
 void mp3_init(void)
 {
-    mp3 = new AudioGeneratorMP3();
+    mp3 = new (std::nothrow) AudioGeneratorMP3();
     //out = new AudioOutputM5Speaker(&M5.Speaker, m5spk_virtual_channel);
 
-    //TTS MP3用バッファ （PSRAMから確保される）
-    preallocateBuffer = (uint8_t *)malloc(preallocateBufferSize);
-    if (!preallocateBuffer) {
-        M5.Display.printf("FATAL ERROR:  Unable to preallocate %d bytes for app\n", preallocateBufferSize);
-        for (;;) { delay(1000); }
+    // TTS MP3用バッファ。PSRAMを優先し、利用できないボードでは通常RAMへフォールバックする。
+    preallocateBuffer = static_cast<uint8_t*>(
+        heap_caps_malloc(preallocateBufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (preallocateBuffer == nullptr) {
+        preallocateBuffer = static_cast<uint8_t*>(
+            heap_caps_malloc(preallocateBufferSize, MALLOC_CAP_8BIT));
+    }
+    if (mp3 == nullptr || preallocateBuffer == nullptr) {
+        M5.Display.printf("MP3 init failed (decoder=%s, buffer=%s)\n",
+                         mp3 != nullptr ? "ok" : "ng",
+                         preallocateBuffer != nullptr ? "ok" : "ng");
+        Serial.println("MP3 playback is disabled because initialization failed");
     }
 
     audioLogger = &Serial;
 }
 
-void playMP3(AudioFileSourceBuffer *buff){
+bool playMP3(AudioFileSourceBuffer *buff){
+
+  if (mp3 == nullptr || preallocateBuffer == nullptr || buff == nullptr) {
+    Serial.println("MP3 playback is unavailable");
+    return false;
+  }
 
   M5.Mic.end();
   M5.Speaker.begin();
 
-  mp3->begin(buff, &out);
+  if (!mp3->begin(buff, &out)) {
+    Serial.println("failed to start mp3 decoder");
+    M5.Speaker.end();
+    M5.Mic.begin();
+    return false;
+  }
   Serial.println("mp3 start");
 
   while(mp3->isRunning()) {
@@ -65,36 +83,45 @@ void playMP3(AudioFileSourceBuffer *buff){
 
   M5.Speaker.end();
   M5.Mic.begin();
-
+  return true;
 }
 
 bool playMP3SPIFFS(const char *filename)
 {
   bool result;
 
+  if (mp3 == nullptr || preallocateBuffer == nullptr) {
+    return false;
+  }
+
   if (SPIFFS.exists(filename)) {
-    AudioFileSourceSPIFFS *file_mp3 = new AudioFileSourceSPIFFS(filename);
+    AudioFileSourceSPIFFS *file_mp3 = new (std::nothrow) AudioFileSourceSPIFFS(filename);
     Serial.println("Open mp3");
     
-    if( !file_mp3->isOpen() ){
+    if (file_mp3 == nullptr || !file_mp3->isOpen()) {
       delete file_mp3;
       file_mp3 = nullptr;
       Serial.println("failed to open mp3 file");
       result = false;
     }
     else{
-      AudioFileSourceBuffer *buff = new AudioFileSourceBuffer(file_mp3, preallocateBuffer, preallocateBufferSize);
+      AudioFileSourceBuffer *buff = new (std::nothrow) AudioFileSourceBuffer(
+          file_mp3, preallocateBuffer, preallocateBufferSize);
+      if (buff == nullptr) {
+        delete file_mp3;
+        Serial.println("failed to allocate mp3 source buffer");
+        return false;
+      }
       avatar.setExpression(Expression::Happy);
       servo_home = false;
 
-      playMP3(buff);
+      result = playMP3(buff);
       
       avatar.setExpression(Expression::Neutral);
       servo_home = true;
 
-      delete file_mp3;
       delete buff;
-      result = true;
+      delete file_mp3;
     }
   }else{
     Serial.println("mp3 file is not exist");
@@ -108,33 +135,42 @@ bool playMP3SD(const char *filename, bool useTalkingExpression)
 {
   bool result;
 
+  if (mp3 == nullptr || preallocateBuffer == nullptr) {
+    return false;
+  }
+
   if (SD.exists(filename)) {
 
-    AudioFileSourceSD *file_mp3 = new AudioFileSourceSD(filename);
+    AudioFileSourceSD *file_mp3 = new (std::nothrow) AudioFileSourceSD(filename);
     Serial.println("Open mp3");
     
-    if( !file_mp3->isOpen() ){
+    if (file_mp3 == nullptr || !file_mp3->isOpen()) {
       delete file_mp3;
       //file_mp3 = nullptr;
       Serial.println("failed to open mp3 file");
       result = false;
     }
     else{
-      AudioFileSourceBuffer *buff = new AudioFileSourceBuffer(file_mp3, preallocateBuffer, preallocateBufferSize);
+      AudioFileSourceBuffer *buff = new (std::nothrow) AudioFileSourceBuffer(
+          file_mp3, preallocateBuffer, preallocateBufferSize);
+      if (buff == nullptr) {
+        delete file_mp3;
+        Serial.println("failed to allocate mp3 source buffer");
+        return false;
+      }
       m5avatar::Expression prevExpression = avatar.getExpression();
       if (useTalkingExpression) {
         avatar.setExpression(Expression::Happy);
       }
       servo_home = false;
 
-      playMP3(buff);
+      result = playMP3(buff);
       
       avatar.setExpression(useTalkingExpression ? Expression::Neutral : prevExpression);
       servo_home = true;
 
-      delete file_mp3;
       delete buff;
-      result = true;
+      delete file_mp3;
     }
   }else{
     Serial.println("mp3 file is not exist");
@@ -150,6 +186,8 @@ bool playMP3URL(const char *url)
   static constexpr const char *kTempPushMp3 = "/push_tmp.mp3";
   // SPIFFS 肥大・DoS 防止（push TTS の想定上限）
   static constexpr size_t kMaxPushMp3Bytes = 1024 * 1024;
+  static constexpr uint32_t kDownloadIdleTimeoutMs = 5000;
+  static constexpr uint32_t kDownloadDeadlineMs = 30000;
 
   if (url == nullptr || strlen(url) == 0) {
     Serial.println("mp3 url is empty");
@@ -194,13 +232,25 @@ bool playMP3URL(const char *url)
   uint8_t buffer[1024];
   size_t total_written = 0;
   bool aborted = false;
-  while (http.connected()) {
+  uint32_t download_started_at = millis();
+  uint32_t last_progress_at = millis();
+  while (http.connected() || stream->available() > 0) {
+    if (static_cast<uint32_t>(millis() - download_started_at) >= kDownloadDeadlineMs) {
+      Serial.println("mp3 download exceeded total time limit");
+      aborted = true;
+      break;
+    }
     size_t available = stream->available();
     if (available == 0) {
-      if (content_length > 0 && file_mp3.size() >= static_cast<size_t>(content_length)) {
+      if (content_length > 0 && total_written >= static_cast<size_t>(content_length)) {
         break;
       }
       if (content_length <= 0 && !stream->connected()) {
+        break;
+      }
+      if (static_cast<uint32_t>(millis() - last_progress_at) >= kDownloadIdleTimeoutMs) {
+        Serial.println("mp3 download timed out while waiting for data");
+        aborted = true;
         break;
       }
       delay(1);
@@ -209,18 +259,36 @@ bool playMP3URL(const char *url)
     size_t chunk = available < sizeof(buffer) ? available : sizeof(buffer);
     int read_len = stream->readBytes(buffer, chunk);
     if (read_len <= 0) {
+      aborted = true;
       break;
     }
+    last_progress_at = millis();
     total_written += static_cast<size_t>(read_len);
     if (total_written > kMaxPushMp3Bytes) {
       Serial.println("mp3 download exceeded size cap");
       aborted = true;
       break;
     }
-    file_mp3.write(buffer, read_len);
+    size_t written = file_mp3.write(buffer, static_cast<size_t>(read_len));
+    if (written != static_cast<size_t>(read_len)) {
+      Serial.printf("mp3 file write failed: %u of %d bytes\n",
+                    static_cast<unsigned>(written), read_len);
+      aborted = true;
+      break;
+    }
   }
   file_mp3.close();
   http.end();
+
+  if (content_length > 0 && total_written != static_cast<size_t>(content_length)) {
+    Serial.printf("mp3 download truncated: %u of %d bytes\n",
+                  static_cast<unsigned>(total_written), content_length);
+    aborted = true;
+  }
+  if (total_written == 0) {
+    Serial.println("mp3 download returned an empty body");
+    aborted = true;
+  }
 
   if (aborted) {
     SPIFFS.remove(kTempPushMp3);

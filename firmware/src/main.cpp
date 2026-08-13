@@ -332,22 +332,34 @@ void setup()
 
   init_mic_spk();
 
+  // 通常起動時は自動formatしない。一時的なmount失敗で設定やpromptを消さないため。
+  if (!SPIFFS.begin(false)) {
+    M5.Lcd.print("Failed to mount SPIFFS without formatting. System reset after 5 seconds.");
+    delay(5000);
+    ESP.restart();
+    return;
+  }
+
   /// settings
+  bool settings_available = false;
 #if defined(ARDUINO_M5STACK_ATOMS3R)
-  if (SPIFFS.begin()) {
-    // この関数ですべてのYAMLファイル(Basic, Secret, Extend)を読み込む
-    system_config.loadConfig(SPIFFS, "/SC_ExConfig.yaml", 2048,
-                                     "/SC_SecConfig.yaml", 2048,
-                                     "/SC_BasicConfig.yaml", 2048);
+  // この関数ですべてのYAMLファイル(Basic, Secret, Extend)を読み込む
+  system_config.loadConfig(SPIFFS, "/SC_ExConfig.yaml", 2048,
+                                   "/SC_SecConfig.yaml", 2048,
+                                   "/SC_BasicConfig.yaml", 2048);
+  settings_available = true;
 #else
-  if (SD.begin(GPIO_NUM_4, SPI, 25000000)) {
+  settings_available = SD.begin(GPIO_NUM_4, SPI, 25000000);
+  if (settings_available) {
     // この関数ですべてのYAMLファイル(Basic, Secret, Extend)を読み込む
     system_config.loadConfig(SD, "/app/AiStackChanEx/SC_ExConfig.yaml");
+  }
 #endif
+  if (settings_available) {
     // Wifi設定読み込み
     wifi_s* wifi_info = system_config.getWiFiSetting();
     Serial.printf("\nSSID: %s\n",wifi_info->ssid.c_str());
-    Serial.printf("Key: %s\n",wifi_info->password.c_str());
+    Serial.printf("Key: %s\n", wifi_info->password.length() > 0 ? "(set)" : "(empty)");
 
     // 前回設定で接続
     Serial.println("Connecting to WiFi");
@@ -468,6 +480,7 @@ void loop()
 {
   //get_elapsed_time_micro("loop() start");
   M5.update();
+  process_function_call_events();
   //get_elapsed_time_micro("M5.update time");
   ModBase* mod = get_current_mod();
   mod->idle();

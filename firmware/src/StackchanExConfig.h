@@ -43,9 +43,9 @@ typedef struct LLMConf {
     int type;
     String model = "";
     String base_url = "";
-    int nMcpServers;
+    int nMcpServers = 0;
     mcp_server_s mcpServer[LLM_N_MCP_SERVERS_MAX];
-    bool enableMemory;
+    bool enableMemory = false;
 } llm_s;
 
 typedef struct TTSConf {
