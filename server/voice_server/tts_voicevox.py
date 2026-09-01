@@ -5,11 +5,11 @@ import os
 import json
 import requests
 from pathlib import Path
-from dotenv import load_dotenv
 
-_ENV_DIR = Path.home() / "env"
-load_dotenv(_ENV_DIR / ".env")
-load_dotenv(_ENV_DIR / ".env.local", override=True)
+from voice_server.env_loader import load_voice_environment
+
+
+load_voice_environment()
 
 # voice_server/ の親 = AI_assistant/ ルート
 _BASE = Path(__file__).parent.parent

@@ -4,7 +4,9 @@ import re
 import json
 from pathlib import Path
 
-_MEMBER_JSON_PATH = Path(__file__).resolve().parent / "json" / "member.json"
+from config import config
+
+_MEMBER_JSON_PATH = Path(config.JSON_DIR) / "member.json"
 MASTER_LABEL = "マスター"
 MASTER_MASK_LABEL = "[マスター]"
 OTHER_LABEL = "その他"

@@ -7,6 +7,7 @@ import re
 import secrets
 from pathlib import Path
 from flask import Blueprint, jsonify, render_template, request
+from atomic_io import atomic_write_text
 from config import config
 from services.voice_cache_catalog import (
     generate_mp3_file,
@@ -19,8 +20,8 @@ from services.voice_cache_catalog import (
 admin_bp = Blueprint("admin", __name__, template_folder="templates")
 
 _BASE = Path(__file__).parent
-_ENV_DIR = Path.home() / "env" 
-_JSON_DIR = _BASE / "json"
+_ENV_DIR = Path(config.ENV_DIR)
+_JSON_DIR = Path(config.JSON_DIR)
 _MEMBER_JSON_PATH = _JSON_DIR / "member.json"
 _READING_MAP_JSON_PATH = _JSON_DIR / "reading_map.json"
 _ANNOUNCEMENTS_JSON_PATH = _JSON_DIR / "announcements.json"
@@ -89,7 +90,7 @@ def _read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 def _write_json(path: Path, data):
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
 def _default_master_member() -> dict:
@@ -502,7 +503,7 @@ def _write_dotenv(path: Path, updates: dict[str, str]):
     for k, v in updates.items():
         if k not in updated_keys:
             new_lines.append(f'{k}={v}')
-    path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    atomic_write_text(path, "\n".join(new_lines) + "\n")
 
 
 def _build_env_response(groups):

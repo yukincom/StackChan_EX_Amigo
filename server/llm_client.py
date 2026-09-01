@@ -9,19 +9,9 @@ AI_PROVIDER = gemini（デフォルト）/ openai互換（grok / ollama / openro
 """
 import os
 import re
-from dotenv import load_dotenv
 from config import config
 
-from google import genai
-from google.genai import types
-
-from openai import OpenAI
-
-from huggingface_hub import try_to_load_from_cache, _CACHED_NO_EXIST
 import threading
-
-load_dotenv()
-load_dotenv(".env.local", override=True)
 
 # ─────────────────────────────────────────────────────────
 # 共通：思考プロセス除去（全プロバイダー適用）
@@ -50,6 +40,8 @@ def _strip_thinking(text: str) -> str:
 
 def call(prompt: str) -> str:
     print(f"[LLM] 💬 chat provider={config.AI_PROVIDER} model={config.AI_CHAT_MODEL}")
+    if config.AI_PROVIDER == "lab":
+        return _call_lab(prompt)
     if config.AI_PROVIDER == "gemini":
         return _call_gemini(prompt, model=config.AI_CHAT_MODEL, temperature=config.AI_CHAT_TEMPERATURE, use_search=False)
     if config.AI_PROVIDER == "mlx":
@@ -59,6 +51,8 @@ def call(prompt: str) -> str:
 def call_search(prompt: str) -> str:
     """検索付き応答。Gemini固定"""
     print(f"[LLM] 🔍 search model={config.AI_SEARCH_MODEL}")
+    if config.AI_PROVIDER == "lab":
+        return _call_lab(prompt)
     return _call_gemini(
         prompt,
         model=config.AI_SEARCH_MODEL,
@@ -70,6 +64,8 @@ def call_search(prompt: str) -> str:
 def call_summary(prompt: str) -> str:
     """要約生成。AI_SUMMARY_PROVIDERで切り替え（デフォルトはgemini）"""
     print(f"[LLM] 📝 summary provider={config.AI_SUMMARY_PROVIDER} model={config.AI_SUMMARY_MODEL}")
+    if config.AI_SUMMARY_PROVIDER == "lab":
+        return _call_lab(prompt)
     if config.AI_SUMMARY_PROVIDER == "gemini":
         return _call_gemini(
             prompt,
@@ -85,11 +81,20 @@ def call_summary(prompt: str) -> str:
         temperature=config.AI_SUMMARY_TEMPERATURE
     )
 
+
+def _call_lab(prompt: str) -> str:
+    """Deterministic offline provider used only when explicitly selected."""
+    del prompt
+    return "仮想環境の固定応答です。"
+
 # ─────────────────────────────────────────────────────────
 # Gemini SDK
 # ─────────────────────────────────────────────────────────
 
 def _call_gemini(prompt: str, model: str, temperature: float, use_search: bool) -> str:
+    from google import genai
+    from google.genai import types
+
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     gen_config = types.GenerateContentConfig(
         max_output_tokens=config.AI_MAX_OUTPUT_TOKENS,
@@ -108,6 +113,8 @@ def _call_gemini(prompt: str, model: str, temperature: float, use_search: bool) 
 # ─────────────────────────────────────────────────────────
 
 def _call_openai_compatible(prompt: str, model: str, temperature: float) -> str:
+    from openai import OpenAI
+
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY", "ollama"),
         base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
@@ -150,6 +157,7 @@ def _call_mlx(prompt: str, model: str, temperature: float, image_path: str = Non
 
 def _call_mlx_text(prompt: str, model: str, temperature: float) -> str:
     """テキスト専用の MLX 呼び出し"""
+    from huggingface_hub import try_to_load_from_cache, _CACHED_NO_EXIST
     from mlx_lm import load, generate
     from mlx_lm.sample_utils import make_sampler
 

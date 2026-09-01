@@ -142,11 +142,33 @@ AI 発カメラ起動も、ここで設定するキーワードや AI 設定に�
 
 詳細は [docs/server.md](docs/server.md) を参照してください。
 
+## 実機なし保守ラボ
+
+M5Stack へ書き込まずに、firmware の HTTP 契約、server の主要 route、音声・会話・Vision の流れ、異常応答、設定診断、設定/記憶の退避と復元を検証できます。テストは固定の合成音声・合成 JPEG と loopback 通信だけを使い、実 API、実カメラ、実会話データ、モデルを必要としません。
+
+```bash
+# 既に依存が入っている環境で全テスト
+PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  python3 -m pytest -p no:cacheprovider -q
+
+# 仮想 M5Stack + 偽 STT/LLM/TTS の一周確認
+python3 -m tools.stackchan_lab smoke --repo .
+
+# 値を表示しない設定診断
+python3 -m tools.stackchan_lab doctor --repo . --env-dir ~/env
+```
+
+初回だけ再現可能な Python 環境を作る場合は `uv sync --frozen --group test` を使います。これは core Python package を取得しますが、Kokoro/MLX やモデルは取得しません。詳しい範囲、復旧手順、現在固定している既知差分は [docs/no-device-lab.md](docs/no-device-lab.md) を参照してください。
+
+現在は camera mode の既知差分があるため、`smoke` は必須検査が通っても `degraded` / exit 2 です。自動化でこの既知差分だけを許容する場合は `--allow-known-gaps` を明示します。
+
 ## ドキュメント
 
 - 基本手順: [docs/basic_usage.md](docs/basic_usage.md)
 - server 構成: [docs/server.md](docs/server.md)
 - Vision: [docs/vision.md](docs/vision.md)
+- 実機なし保守ラボ: [docs/no-device-lab.md](docs/no-device-lab.md)
+- Python 依存とライセンス: [docs/python-dependency-licenses.md](docs/python-dependency-licenses.md)
 
 ## 注意
 

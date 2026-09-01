@@ -6,13 +6,12 @@ import re
 import os
 import numpy as np
 import soundfile as sf
-from pathlib import Path
-from dotenv import load_dotenv
 from kokoro import KPipeline
 
-_ENV_DIR = Path.home() / "env"
-load_dotenv(_ENV_DIR / ".env")
-load_dotenv(_ENV_DIR / ".env.local", override=True)
+from voice_server.env_loader import load_voice_environment
+
+
+load_voice_environment()
 
 KOKORO_VOICE_ENGLISH = os.getenv("KOKORO_VOICE_ENGLISH", "af_sarah")
 KOKORO_SAMPLE_RATE = 24000

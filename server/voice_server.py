@@ -5,11 +5,15 @@ import hashlib
 import os
 import time
 import uuid
+from pathlib import Path
 
 import requests
 from flask import Flask, jsonify, request, send_file
-from pathlib import Path
-from dotenv import load_dotenv
+
+from voice_server.env_loader import load_voice_environment
+
+
+load_voice_environment()
 
 from voice_server.tts_voicevox import (
     generate_voicevox_wav, normalize_text,
@@ -21,10 +25,6 @@ from voice_server.tts_kokoro import (
 )
 from voice_server.cache_manager import check_cache, VOICE_STORAGE_DIR, get_cache_path
 from path_safety import resolve_under, safe_id, safe_voice_id
-
-_ENV_DIR = Path.home() / "env"
-load_dotenv(_ENV_DIR / ".env")
-load_dotenv(_ENV_DIR / ".env.local", override=True)
 
 SONGS_DIR = os.path.join(os.path.dirname(__file__), "songs")
 

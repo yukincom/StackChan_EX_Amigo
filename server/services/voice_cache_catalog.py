@@ -10,10 +10,11 @@ from pathlib import Path
 
 import requests
 
+from atomic_io import atomic_write_text
 from config import config
 from path_safety import resolve_under, safe_id
 
-CATALOG_PATH = Path(__file__).resolve().parent.parent / "json" / "voice_cache_catalog.json"
+CATALOG_PATH = Path(config.JSON_DIR) / "voice_cache_catalog.json"
 EXAMPLE_CATALOG_PATH = Path(__file__).resolve().parent.parent / "json_example" / "voice_cache_catalog.json"
 
 def _empty_catalog() -> dict:
@@ -49,9 +50,9 @@ def load_catalog() -> dict:
 def save_catalog(data: dict) -> dict:
     catalog = _normalize_catalog(data)
     CATALOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CATALOG_PATH.write_text(
-        json.dumps(catalog, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+    atomic_write_text(
+        CATALOG_PATH,
+        json.dumps(catalog, ensure_ascii=False, indent=2) + "\n",
     )
     return catalog
 

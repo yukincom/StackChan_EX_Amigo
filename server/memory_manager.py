@@ -9,11 +9,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from atomic_io import atomic_write_text
 from config import config
 from member_loader import get_primary_name, load_member_data, mask_names
 
 MEMORY_DIR = Path(config.MEMORY_DIR)
-MEMORY_DIR.mkdir(parents=True, exist_ok=True)
 
 # today.md の全読み書きを直列化（chat / weather / batch / vision）
 _TODAY_LOCK = threading.RLock()
@@ -33,15 +33,27 @@ def _read_today_unlocked() -> str:
 
 def _write_today_unlocked(text: str) -> None:
     path = today_md_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    atomic_write_text(path, text)
 
 
 def _append_today_unlocked(text: str) -> None:
-    path = today_md_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(text)
+    _write_today_unlocked(_read_today_unlocked() + text)
+
+
+def recover_today_from_backup() -> bool:
+    """直前の完全な today.md へ戻す。明示的に呼ばれた場合だけ復旧する。"""
+    with _TODAY_LOCK:
+        path = today_md_path()
+        backup_path = path.with_suffix(path.suffix + ".bak")
+        if not backup_path.is_file():
+            return False
+        # 復旧直前の壊れた内容で last-known-good backup を上書きしない。
+        atomic_write_text(
+            path,
+            backup_path.read_text(encoding="utf-8"),
+            keep_backup=False,
+        )
+        return True
 
 
 def read_today() -> str:

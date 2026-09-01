@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 # 画像の一時保存先（処理後に削除）
 VISION_TMP_DIR = Path(os.getenv("VISION_DIR", "/tmp/stackchan_vision"))
-VISION_TMP_DIR.mkdir(parents=True, exist_ok=True)
 
 # Vision応答の上限（1〜2文目安）
 MAX_VISION_REPLY_CHARS = 120
@@ -117,6 +116,7 @@ def handle_vision_upload(
     M5Stackから受信した画像を処理してTTS応答を生成。
     非同期で呼ばれることを前提（Flask endpointから threading.Thread で実行）。
     """
+    VISION_TMP_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now()
     resolved_master_label = MASTER_MASK_LABEL
     resolved_speaker = (speaker or "master").strip() or "master"

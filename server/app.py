@@ -3,6 +3,7 @@
 
 
 import traceback
+import threading
 from datetime import datetime
 
 import requests
@@ -15,7 +16,7 @@ from llm_client import preload_mlx_model
 from member_loader import has_line_users, has_discord_users
 from services.chat_service import process_chat, resolve_speaker_context, trigger_stack_ai_camera_async
 from services.discord_service import _init_last_message_id
-from services.scheduler_service import setup_scheduler, start_scheduler, stop_scheduler
+from services.scheduler_service import setup_scheduler, stop_scheduler
 from services.batch_service import run_if_needed
 from services.speech_service import speech_service
 from services.voice_service import warmup_stack_startup_message
@@ -24,10 +25,8 @@ from services.vlm_service import preload_vml_model
 from admin_routes import admin_bp
 from openai_compat_routes import openai_bp
 
-
-app = Flask(__name__)
-app.register_blueprint(admin_bp)
-app.register_blueprint(openai_bp)
+_RUNTIME_LOCK = threading.Lock()
+_RUNTIME_STARTED = False
 
 def check_notification_config():
     """通知サービスの設定確認（起動時のみ）"""
@@ -51,18 +50,45 @@ def check_notification_config():
 
     return True
 
-# スケジューラー開始（インポート時に自動開始）
-run_if_needed()
-if config.DISCORD_BOT_TOKEN:
-    _init_last_message_id()
-notification_enabled = check_notification_config()  
-setup_scheduler(notification_enabled)               
-start_scheduler()
-preload_mlx_model()
-preload_vml_model()  
-warmup_stack_startup_message()
+def start_runtime_services() -> bool:
+    """通常運用向けのバックグラウンド処理を一度だけ開始する。
 
-@app.route("/health", methods=["GET"])
+    Flask app の import/create から分離し、テストや診断ではモデル、通知、
+    scheduler、M5Stack への起動音声を開始しない。
+    """
+    global _RUNTIME_STARTED
+    with _RUNTIME_LOCK:
+        if _RUNTIME_STARTED:
+            return False
+        try:
+            run_if_needed()
+            if config.DISCORD_BOT_TOKEN:
+                _init_last_message_id()
+            notification_enabled = check_notification_config()
+            # setup_scheduler() が scheduler.start() まで担当する。
+            setup_scheduler(notification_enabled)
+            preload_mlx_model()
+            preload_vml_model()
+            warmup_stack_startup_message()
+        except Exception:
+            # scheduler 開始後の model preload 等で失敗した場合も後始末する。
+            stop_scheduler()
+            raise
+        _RUNTIME_STARTED = True
+        return True
+
+
+def stop_runtime_services() -> bool:
+    """通常運用向けバックグラウンド処理を停止する。"""
+    global _RUNTIME_STARTED
+    with _RUNTIME_LOCK:
+        if not _RUNTIME_STARTED:
+            return False
+        stop_scheduler()
+        _RUNTIME_STARTED = False
+        return True
+
+
 def health_check():
     """ヘルスチェック"""
     return jsonify({
@@ -70,16 +96,15 @@ def health_check():
         "version": "2.3",
         "memory": "local",
         "voice_server": config.VOICE_SERVER_URL,
+        "runtime_started": _RUNTIME_STARTED,
     })
 
-@app.route("/time", methods=["GET"])
 def get_server_time():
     """M5Stack起動時のserverHour同期用"""
     return jsonify({"server_hour": datetime.now().hour})
 
 # 内部テスト用の入口。PC入力と音声入力を並行で試せるよう残している。
 # 主導線は /v1/chat/completions。
-@app.route("/chat", methods=["POST"])
 def chat():
     """内部テスト用のチャットエンドポイント"""
     try:
@@ -100,7 +125,6 @@ def chat():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route("/notify/pending", methods=["GET"])
 def get_pending_notifications():
     """M5Stackからの時刻同期用（push型移行後はserverHourのみ返す）"""
     return jsonify({
@@ -109,7 +133,6 @@ def get_pending_notifications():
         "server_hour": datetime.now().hour,
     })
 
-@app.route("/voice/<voice_id>", methods=["GET"])
 def get_voice_by_id(voice_id):
     """特定のvoice_idを取得（プロキシ）"""
     from path_safety import safe_voice_id
@@ -137,7 +160,6 @@ def get_voice_by_id(voice_id):
         return jsonify({"success": False, "status": "upstream_unreachable"}), 502
 
 
-@app.route("/speech/transcribe", methods=["POST"])
 def transcribe_speech():
     """音声認識エンドポイント"""
     try:
@@ -212,7 +234,6 @@ def _ensure_vision_worker():
     print("[VISION-Q] worker started")
 
 
-@app.route("/vision/status", methods=["GET"])
 def vision_status():
     """診断用: キューと VLM の状態"""
     from services.vlm_service import vlm_status
@@ -225,7 +246,6 @@ def vision_status():
     })
 
 
-@app.route("/vision/upload", methods=["POST"])
 def vision_upload():
     """M5Stack からの画像受信 → VLM解析 → TTS push（非同期・キュー）"""
     global _VISION_JOB_SEQ
@@ -273,7 +293,6 @@ def vision_upload():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route("/vision/ai-trigger", methods=["POST"])
 def vision_ai_trigger():
     """Mac側のAI判断でM5Stackのカメラを起動させる"""
     try:
@@ -285,10 +304,59 @@ def vision_ai_trigger():
         return jsonify({"success": False, "error": "trigger_failed"}), 500
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
-    
+
+
+def register_core_routes(flask_app: Flask) -> None:
+    """既存URLとendpoint名を保ったままcore routeを登録する。"""
+    flask_app.add_url_rule("/health", "health_check", health_check, methods=["GET"])
+    flask_app.add_url_rule("/time", "get_server_time", get_server_time, methods=["GET"])
+    flask_app.add_url_rule("/chat", "chat", chat, methods=["POST"])
+    flask_app.add_url_rule(
+        "/notify/pending",
+        "get_pending_notifications",
+        get_pending_notifications,
+        methods=["GET"],
+    )
+    flask_app.add_url_rule(
+        "/voice/<voice_id>",
+        "get_voice_by_id",
+        get_voice_by_id,
+        methods=["GET"],
+    )
+    flask_app.add_url_rule(
+        "/speech/transcribe",
+        "transcribe_speech",
+        transcribe_speech,
+        methods=["POST"],
+    )
+    flask_app.add_url_rule("/vision/status", "vision_status", vision_status, methods=["GET"])
+    flask_app.add_url_rule("/vision/upload", "vision_upload", vision_upload, methods=["POST"])
+    flask_app.add_url_rule(
+        "/vision/ai-trigger",
+        "vision_ai_trigger",
+        vision_ai_trigger,
+        methods=["POST"],
+    )
+
+
+def create_app(test_config: dict | None = None) -> Flask:
+    """副作用なしでFlask appを作成する。"""
+    flask_app = Flask(__name__)
+    if test_config:
+        flask_app.config.update(test_config)
+    flask_app.register_blueprint(admin_bp)
+    flask_app.register_blueprint(openai_bp)
+    register_core_routes(flask_app)
+    return flask_app
+
+
+# 従来の ``from app import app`` と ``python app.py`` を維持する。
+app = create_app()
+
+
 if __name__ == "__main__":
     try:
+        start_runtime_services()
         app.run(host="0.0.0.0", port=config.SERVER_PORT, debug=False)
     finally:
-        # アプリケーション終了時にスケジューラーを停止
-        stop_scheduler()
+        stop_runtime_services()
