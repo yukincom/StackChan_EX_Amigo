@@ -3,6 +3,7 @@
     "hour": 7,
     "message": "そろそろ出かける時間だよ！準備はできたかな？",
     "minute": 25,
+    "holiday_only": false,
     "weekday_only": true,
     "with_weather": true
   },
@@ -10,6 +11,7 @@
     "hour": 14,
     "message": "ねえねえ、そろそろおやつの時間なんじゃない？",
     "minute": 0,
+    "holiday_only": true,
     "weekday_only": false,
     "with_weather": false
   },
@@ -17,6 +19,7 @@
     "hour": 18,
     "message": "そろそろ、夕ごはんの時間だね！今日のメニューはなにかな？",
     "minute": 10,
+    "holiday_only": true,
     "weekday_only": false,
     "with_weather": false
   },
@@ -24,6 +27,7 @@
     "hour": 19,
     "message": "もうご飯は済んだかな？そろそろ、おふろの時間だよ〜！",
     "minute": 0,
+    "holiday_only": true,
     "weekday_only": false,
     "with_weather": false
   }

@@ -2,6 +2,7 @@
 """Flaskアプリケーション"""
 
 
+import json
 import traceback
 import threading
 from datetime import datetime
@@ -19,14 +20,29 @@ from services.discord_service import _init_last_message_id
 from services.scheduler_service import setup_scheduler, stop_scheduler
 from services.batch_service import run_if_needed
 from services.speech_service import speech_service
-from services.voice_service import warmup_stack_startup_message
+from services.voice_service import (
+    ensure_voice_delivery_worker,
+    voice_delivery_ready,
+    warmup_stack_startup_message,
+)
 from services.vision_handler import handle_vision_upload
 from services.vlm_service import preload_vml_model
 from admin_routes import admin_bp
 from openai_compat_routes import openai_bp
+from observability import emit_trace, install_flask_tracing, trace_context
+from operation_journal import JournalError, get_operation_journal
 
 _RUNTIME_LOCK = threading.Lock()
 _RUNTIME_STARTED = False
+_JOURNAL_RECOVERED = False
+
+
+def _recover_operation_journal() -> None:
+    global _JOURNAL_RECOVERED
+    if _JOURNAL_RECOVERED:
+        return
+    get_operation_journal().recover_interrupted()
+    _JOURNAL_RECOVERED = True
 
 def check_notification_config():
     """通知サービスの設定確認（起動時のみ）"""
@@ -61,6 +77,9 @@ def start_runtime_services() -> bool:
         if _RUNTIME_STARTED:
             return False
         try:
+            _recover_operation_journal()
+            _ensure_vision_worker()
+            ensure_voice_delivery_worker()
             run_if_needed()
             if config.DISCORD_BOT_TOKEN:
                 _init_last_message_id()
@@ -201,36 +220,98 @@ import time as _time
 
 _VISION_QUEUE: _queue.Queue = _queue.Queue(maxsize=2)
 _VISION_WORKER_STARTED = False
+_VISION_WORKER_THREAD: _threading.Thread | None = None
 _VISION_JOB_SEQ = 0
 _VISION_JOB_LOCK = _threading.Lock()
+_VISION_QUEUED_OPS: set[str] = set()
+
+
+def _enqueue_persisted_vision() -> None:
+    """Fill available RAM queue slots from durable retryable operations."""
+    journal = get_operation_journal()
+    for record in journal.pending("vision"):
+        op_id = record["op_id"]
+        with _VISION_JOB_LOCK:
+            if op_id in _VISION_QUEUED_OPS:
+                continue
+            try:
+                _VISION_QUEUE.put_nowait(op_id)
+            except _queue.Full:
+                return
+            _VISION_QUEUED_OPS.add(op_id)
+
+
+def _process_vision_operation(op_id: str) -> None:
+    journal = get_operation_journal()
+    journal.transition(op_id, "running", owner="worker", stage="processing")
+    image_data = journal.load_payload(op_id, "image.jpg")
+    try:
+        request_data = json.loads(journal.load_payload(op_id, "request.json"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise JournalError("private vision request is invalid") from exc
+    if not isinstance(request_data, dict):
+        raise JournalError("private vision request is invalid")
+
+    with trace_context(op_id):
+        result = handle_vision_upload(
+            image_data,
+            str(request_data.get("requester", "user")),
+            str(request_data.get("transcript", "")),
+            str(request_data.get("speaker", "master")),
+            str(request_data.get("speaker_label", "")),
+        )
+    if isinstance(result, dict) and result.get("success"):
+        journal.transition(op_id, "succeeded", owner="worker", stage="complete")
+        journal.discard_payloads(op_id)
+        return
+    journal.transition(op_id, "failed", owner="worker", stage="error")
 
 
 def _vision_worker_loop():
     while True:
-        item = _VISION_QUEUE.get()
-        job_id, image_data, requester, transcript, speaker, speaker_label = item
+        op_id = _VISION_QUEUE.get()
         t0 = _time.monotonic()
-        print(
-            f"[VISION-Q] start job={job_id} qsize={_VISION_QUEUE.qsize()} "
-            f"requester={requester} t={transcript[:40]!r} bytes={len(image_data)}"
-        )
+        print(f"[VISION-Q] start op={op_id[:8]} qsize={_VISION_QUEUE.qsize()}")
         try:
-            handle_vision_upload(image_data, requester, transcript, speaker, speaker_label)
-            print(f"[VISION-Q] done job={job_id} in {_time.monotonic() - t0:.1f}s")
-        except Exception:
+            _process_vision_operation(op_id)
+            print(f"[VISION-Q] done op={op_id[:8]} in {_time.monotonic() - t0:.1f}s")
+        except Exception as exc:
+            try:
+                latest = get_operation_journal().latest().get(op_id)
+                if latest and latest["state"] == "running":
+                    get_operation_journal().transition(
+                        op_id, "failed", owner="worker", stage="error"
+                    )
+            except JournalError:
+                pass
+            emit_trace("vision", "process", "error", trace_id=op_id, error_type=type(exc).__name__)
             traceback.print_exc()
-            print(f"[VISION-Q] fail job={job_id} in {_time.monotonic() - t0:.1f}s")
+            print(f"[VISION-Q] fail op={op_id[:8]} in {_time.monotonic() - t0:.1f}s")
         finally:
+            with _VISION_JOB_LOCK:
+                _VISION_QUEUED_OPS.discard(op_id)
             _VISION_QUEUE.task_done()
+            try:
+                _enqueue_persisted_vision()
+            except JournalError:
+                pass
 
 
 def _ensure_vision_worker():
-    global _VISION_WORKER_STARTED
-    if _VISION_WORKER_STARTED:
-        return
-    t = _threading.Thread(target=_vision_worker_loop, name="vision-worker", daemon=True)
-    t.start()
-    _VISION_WORKER_STARTED = True
+    global _VISION_WORKER_STARTED, _VISION_WORKER_THREAD
+    _recover_operation_journal()
+    with _VISION_JOB_LOCK:
+        if (
+            _VISION_WORKER_STARTED
+            and _VISION_WORKER_THREAD is not None
+            and _VISION_WORKER_THREAD.is_alive()
+        ):
+            return
+        t = _threading.Thread(target=_vision_worker_loop, name="vision-worker", daemon=True)
+        t.start()
+        _VISION_WORKER_THREAD = t
+        _VISION_WORKER_STARTED = True
+    _enqueue_persisted_vision()
     print("[VISION-Q] worker started")
 
 
@@ -244,6 +325,29 @@ def vision_status():
         "worker_started": _VISION_WORKER_STARTED,
         "vlm": vlm_status(),
     })
+
+
+def liveness_check():
+    """Process-level probe. It intentionally does not imply runtime readiness."""
+    return jsonify({"status": "alive", "version": "2.3"})
+
+
+def readiness_check():
+    journal_ready, _journal_reason = get_operation_journal().readiness()
+    vision_ready = bool(
+        _VISION_WORKER_STARTED
+        and _VISION_WORKER_THREAD is not None
+        and _VISION_WORKER_THREAD.is_alive()
+    )
+    checks = {
+        "config": not bool(config.LOAD_ERRORS),
+        "journal": journal_ready,
+        "runtime": _RUNTIME_STARTED,
+        "vision_worker": vision_ready,
+        "voice_delivery_worker": voice_delivery_ready(),
+    }
+    ready = all(checks.values())
+    return jsonify({"status": "ready" if ready else "not_ready", "checks": checks}), 200 if ready else 503
 
 
 def vision_upload():
@@ -263,31 +367,53 @@ def vision_upload():
         speaker = request.args.get("s", "master")
         speaker_label = request.args.get("sl", "")
 
-        _ensure_vision_worker()
         with _VISION_JOB_LOCK:
             _VISION_JOB_SEQ += 1
             job_id = _VISION_JOB_SEQ
+        private_request = json.dumps(
+            {
+                "job_id": job_id,
+                "requester": requester,
+                "transcript": transcript,
+                "speaker": speaker,
+                "speaker_label": speaker_label,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        journal = get_operation_journal()
+        operation = journal.create(
+            "vision",
+            owner="api",
+            payloads={"image.jpg": image_data, "request.json": private_request},
+        )
+        op_id = operation["op_id"]
+        _ensure_vision_worker()
         try:
-            _VISION_QUEUE.put_nowait(
-                (job_id, image_data, requester, transcript, speaker, speaker_label)
-            )
+            with _VISION_JOB_LOCK:
+                if op_id not in _VISION_QUEUED_OPS:
+                    _VISION_QUEUE.put_nowait(op_id)
+                    _VISION_QUEUED_OPS.add(op_id)
         except _queue.Full:
-            print(
-                f"[VISION-Q] reject job={job_id} queue_full "
-                f"t={transcript[:40]!r} bytes={len(image_data)}"
-            )
+            journal.transition(op_id, "rejected", owner="api", stage="error")
+            journal.discard_payloads(op_id)
+            print(f"[VISION-Q] reject job={job_id} queue_full bytes={len(image_data)}")
             return jsonify({
                 "success": False,
                 "error": "vision_busy",
                 "message": "Vision is processing; try again shortly",
             }), 429
 
-        print(
-            f"[VISION-Q] enqueued job={job_id} qsize={_VISION_QUEUE.qsize()} "
-            f"t={transcript[:40]!r} bytes={len(image_data)}"
-        )
-        return jsonify({"success": True, "status": "processing", "job_id": job_id})
+        print(f"[VISION-Q] enqueued job={job_id} qsize={_VISION_QUEUE.qsize()} bytes={len(image_data)}")
+        return jsonify({
+            "success": True,
+            "status": "processing",
+            "job_id": job_id,
+            "operation_id": op_id,
+        })
 
+    except JournalError:
+        return jsonify({"success": False, "error": "journal_unavailable"}), 503
     except Exception as e:
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
@@ -309,6 +435,8 @@ def vision_ai_trigger():
 def register_core_routes(flask_app: Flask) -> None:
     """既存URLとendpoint名を保ったままcore routeを登録する。"""
     flask_app.add_url_rule("/health", "health_check", health_check, methods=["GET"])
+    flask_app.add_url_rule("/health/live", "liveness_check", liveness_check, methods=["GET"])
+    flask_app.add_url_rule("/health/ready", "readiness_check", readiness_check, methods=["GET"])
     flask_app.add_url_rule("/time", "get_server_time", get_server_time, methods=["GET"])
     flask_app.add_url_rule("/chat", "chat", chat, methods=["POST"])
     flask_app.add_url_rule(
@@ -347,6 +475,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     flask_app.register_blueprint(admin_bp)
     flask_app.register_blueprint(openai_bp)
     register_core_routes(flask_app)
+    install_flask_tracing(flask_app)
     return flask_app
 
 

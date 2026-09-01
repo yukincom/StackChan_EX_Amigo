@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import queue
 import shutil
@@ -66,6 +67,9 @@ def run_smoke_scenario(repo_root: Path | None = None) -> dict[str, Any]:
             "STACKCHAN_JSON_DIR": str(json_dir),
             "MEMORY_DIR": str(temp_root / "server" / "memory"),
             "ARCHIVE_DIR": str(temp_root / "server" / "archive"),
+            "STACKCHAN_STATE_DIR": str(temp_root / "server" / "state"),
+            "TRACE_DIR": str(temp_root / "server" / "state" / "trace"),
+            "JOURNAL_DIR": str(temp_root / "server" / "state" / "journal"),
             "VOICE_STORAGE_DIR": str(temp_root / "server" / "voice_store"),
             "VISION_DIR": str(temp_root / "vision"),
             "VISION_ARCHIVE_DIR": str(temp_root / "vision-archive"),
@@ -75,6 +79,9 @@ def run_smoke_scenario(repo_root: Path | None = None) -> dict[str, Any]:
         }
         with patch.dict(os.environ, safe_env, clear=False):
             app_module, memory_manager, openai_routes, voice_service = _server_modules(repo_root)
+            from operation_journal import OperationJournal
+
+            operation_journal = OperationJournal(temp_root / "server" / "state" / "journal")
             fake_state = FakeServicesState()
             vision_queue: queue.Queue = queue.Queue(maxsize=2)
 
@@ -96,7 +103,14 @@ def run_smoke_scenario(repo_root: Path | None = None) -> dict[str, Any]:
                     patches.enter_context(patch.object(app_module, "_VISION_QUEUE", vision_queue))
                     patches.enter_context(patch.object(app_module, "_VISION_WORKER_STARTED", False))
                     patches.enter_context(patch.object(app_module, "_VISION_JOB_SEQ", 0))
+                    patches.enter_context(patch.object(app_module, "_VISION_QUEUED_OPS", set()))
                     patches.enter_context(patch.object(app_module, "_ensure_vision_worker", lambda: None))
+                    patches.enter_context(
+                        patch.object(app_module, "get_operation_journal", lambda: operation_journal)
+                    )
+                    patches.enter_context(
+                        patch.object(voice_service, "get_operation_journal", lambda: operation_journal)
+                    )
 
                     production_app = app_module.create_app({"TESTING": True})
                     with LiveServer(production_app) as production_server:
@@ -209,18 +223,27 @@ def run_smoke_scenario(repo_root: Path | None = None) -> dict[str, Any]:
                                         timeout=3,
                                     )
                                     queued_vision = vision_queue.get_nowait() if not vision_queue.empty() else None
+                                    queued_image = b""
+                                    queued_request: dict[str, Any] = {}
+                                    if queued_vision is not None:
+                                        queued_image = operation_journal.load_payload(queued_vision, "image.jpg")
+                                        queued_request = json.loads(
+                                            operation_journal.load_payload(queued_vision, "request.json")
+                                        )
                                     checks["virtual_camera_reaches_production_server"] = (
                                         camera.status_code == 200
                                         and camera_advance.status_code == 200
                                         and queued_vision is not None
-                                        and len(queued_vision[1]) > 500
-                                        and queued_vision[2:5] == ("user", "見て", "master")
+                                        and len(queued_image) > 500
+                                        and queued_request.get("requester") == "user"
+                                        and queued_request.get("transcript") == "見て"
+                                        and queued_request.get("speaker") == "master"
                                     )
                                     # Diagnostic metadata only: this must never make a check green.
                                     known_gaps["camera_mode_not_transmitted_by_current_firmware"] = (
                                         device_state.camera_upload_v2 is False
                                         and queued_vision is not None
-                                        and len(queued_vision) == 6
+                                        and "mode" not in queued_request
                                     )
 
             required_ok = bool(checks) and all(checks.values())
@@ -236,8 +259,8 @@ def run_smoke_scenario(repo_root: Path | None = None) -> dict[str, Any]:
                 "known_gaps": known_gaps,
                 "production_vision": {
                     "received": queued_vision is not None,
-                    "bytes": len(queued_vision[1]) if queued_vision else 0,
-                    "requester": queued_vision[2] if queued_vision else "",
+                    "bytes": len(queued_image) if queued_vision else 0,
+                    "requester": queued_request.get("requester", "") if queued_vision else "",
                 },
                 "device_events": device_state.events,
                 "fake_service_events": fake_state.events,

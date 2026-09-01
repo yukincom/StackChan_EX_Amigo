@@ -7,9 +7,11 @@ import json
 from pathlib import Path
 
 from .contracts import CONTRACT_VERSION, validate_firmware_route_presence
+from .config_schema import plan_migrations, validate_all
 from .doctor import doctor_summary, run_doctor
 from .recovery import create_snapshot, restore_snapshot, verify_snapshot
 from .scenario import run_smoke_scenario
+from .support_bundle import create_support_bundle, verify_support_bundle
 from .virtual_m5 import VirtualM5State, create_virtual_m5_app
 
 
@@ -51,6 +53,25 @@ def build_parser() -> argparse.ArgumentParser:
     restore = snapshot_sub.add_parser("restore")
     restore.add_argument("snapshot", type=Path)
     restore.add_argument("--target", type=Path, required=True)
+
+    support = subparsers.add_parser("support", help="create/verify a secret-safe support bundle")
+    support_sub = support.add_subparsers(dest="support_command", required=True)
+    support_create = support_sub.add_parser("create")
+    support_create.add_argument("--repo", type=Path, default=Path.cwd())
+    support_create.add_argument("--env-dir", type=Path)
+    support_create.add_argument("--trace-dir", type=Path)
+    support_create.add_argument("--max-events", type=int, default=500)
+    support_create.add_argument("--output", type=Path, required=True)
+    support_verify = support_sub.add_parser("verify")
+    support_verify.add_argument("bundle", type=Path)
+
+    config_parser = subparsers.add_parser("config", help="validate or plan config schema changes")
+    config_sub = config_parser.add_subparsers(dest="config_command", required=True)
+    config_validate = config_sub.add_parser("validate")
+    config_validate.add_argument("--repo", type=Path, default=Path.cwd())
+    config_validate.add_argument("--env-dir", type=Path)
+    config_plan = config_sub.add_parser("plan")
+    config_plan.add_argument("--json-dir", type=Path, required=True)
     return parser
 
 
@@ -92,5 +113,28 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.snapshot_command == "restore":
             _print_json(restore_snapshot(args.snapshot, args.target))
+            return 0
+    if args.command == "support":
+        if args.support_command == "create":
+            _print_json(
+                create_support_bundle(
+                    args.repo,
+                    args.output,
+                    env_dir=args.env_dir,
+                    trace_dir=args.trace_dir,
+                    max_events=args.max_events,
+                )
+            )
+            return 0
+        if args.support_command == "verify":
+            _print_json(verify_support_bundle(args.bundle))
+            return 0
+    if args.command == "config":
+        if args.config_command == "validate":
+            report = validate_all(args.repo, args.env_dir)
+            _print_json(report)
+            return 1 if report["status"] == "error" else 0
+        if args.config_command == "plan":
+            _print_json(plan_migrations(args.json_dir))
             return 0
     raise AssertionError("unreachable")

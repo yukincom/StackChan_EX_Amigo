@@ -12,19 +12,65 @@ today.md の読み書きは memory_manager のロック経由。
 LLM 呼び出しはロック外で行う。
 """
 
+import hashlib
+import json
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from config import config
+from atomic_io import atomic_write_text
 from member_loader import MASTER_LABEL, mask_names, unmask_names
 import llm_client
 from memory_manager import read_today, update_today
+from operation_journal import JournalError, get_operation_journal
 from services.weather_service import get_confirmed_weather_summary
 
 
 MEMORY_DIR = Path(config.MEMORY_DIR)
 ARCHIVE_DIR = Path(config.ARCHIVE_DIR)
+
+
+def _completion_path(date: str) -> Path:
+    return ARCHIVE_DIR / f".{date}.complete.json"
+
+
+def _archive_is_complete(date: str) -> bool:
+    archive_path = ARCHIVE_DIR / f"{date}.md"
+    completion_path = _completion_path(date)
+    if not archive_path.is_file() or not completion_path.is_file():
+        return False
+    try:
+        value = json.loads(completion_path.read_text(encoding="utf-8"))
+        archive_sha256 = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    return value == {
+        "v": 1,
+        "date": date,
+        "archive_sha256": archive_sha256,
+    }
+
+
+def _resume_pending_summaries() -> None:
+    journal = get_operation_journal()
+    for record in journal.pending("daily_summary"):
+        op_id = record["op_id"]
+        try:
+            value = json.loads(journal.load_payload(op_id, "request.json"))
+            date = value["date"]
+            day_convos = value["day_convos"]
+            if (
+                not isinstance(date, str)
+                or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date)
+                or not isinstance(day_convos, list)
+                or not all(isinstance(item, str) for item in day_convos)
+            ):
+                raise ValueError
+        except (JournalError, KeyError, TypeError, ValueError, json.JSONDecodeError, UnicodeDecodeError):
+            journal.transition(op_id, "failed", owner="scheduler", stage="error")
+            continue
+        _process_speaker(date, day_convos, operation_id=op_id)
 
 
 def run_if_needed():
@@ -33,6 +79,8 @@ def run_if_needed():
     if not Path(config.ARCHIVE_DIR).exists():
         print("[BATCH] アーカイブ先が見つかりません。スキップします")
         return
+
+    _resume_pending_summaries()
 
     content = read_today()
 
@@ -46,7 +94,7 @@ def run_if_needed():
             continue  # 今日分はスキップ
 
         archive_path = ARCHIVE_DIR / f"{target_date}.md"
-        if archive_path.exists():
+        if _archive_is_complete(target_date):
             print(f"[BATCH] {target_date}.md は処理済み → スキップ")
             continue
 
@@ -68,34 +116,74 @@ def _extract_day_conversations(content, date):
     return matches
 
 
-def _process_speaker(date, day_convos):
+def _process_speaker(date, day_convos, *, operation_id=None):
     """1日分のバッチ処理。LLM はロック外、today.md 更新はロック内。"""
 
-    # 1. アーカイブフォルダを作成
-    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    journal = get_operation_journal()
+    if operation_id is None:
+        private_request = json.dumps(
+            {"date": date, "day_convos": day_convos},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        operation_id = journal.create(
+            "daily_summary",
+            owner="scheduler",
+            payloads={"request.json": private_request},
+        )["op_id"]
+    journal.transition(operation_id, "running", owner="scheduler", stage="processing")
 
-    # 2. 生データをSSDに保存（today.md 以外 → ロック不要）
-    archive_path = ARCHIVE_DIR / f"{date}.md"
-    archive_content = f"# today の会話ログ ({date})\n\n"
-    archive_content += unmask_names("\n".join(day_convos))
-    archive_path.write_text(archive_content, encoding="utf-8")
-    print(f"[BATCH] アーカイブ保存: {archive_path}")
+    try:
+        # 1. アーカイブフォルダを作成
+        ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 3. AIで要約生成（重いのでロック外）
-    summary = _generate_summary(date, day_convos)
-    weather_summary = get_confirmed_weather_summary(date)
-    print(f"[BATCH] 要約生成完了:\n{summary}")
+        # 2. 生データをSSDにatomic保存。complete markerは最後まで書かない。
+        archive_path = ARCHIVE_DIR / f"{date}.md"
+        archive_content = f"# today の会話ログ ({date})\n\n"
+        archive_content += unmask_names("\n".join(day_convos))
+        atomic_write_text(archive_path, archive_content)
+        print(f"[BATCH] アーカイブ保存: {archive_path}")
 
-    # 4. today.md を更新（再読込 + 置換 + 古い要約アーカイブをロック内）
-    def mutator(full_content: str) -> str:
-        fresh = _extract_day_conversations(full_content, date)
-        if not fresh:
-            return full_content
-        new_content = _update_md(full_content, date, fresh, summary, weather_summary)
-        return _archive_old_summaries_content(new_content)
+        # 3. AIで要約生成（重いのでロック外）
+        summary = _generate_summary(date, day_convos)
+        weather_summary = get_confirmed_weather_summary(date)
+        print(f"[BATCH] 要約生成完了:\n{summary}")
 
-    update_today(mutator)
-    print("[BATCH] today.md を更新しました")
+        # 4. today.md を更新（再読込 + 置換 + 古い要約アーカイブをロック内）
+        def mutator(full_content: str) -> str:
+            fresh = _extract_day_conversations(full_content, date)
+            if not fresh:
+                return full_content
+            new_content = _update_md(full_content, date, fresh, summary, weather_summary)
+            return _archive_old_summaries_content(new_content)
+
+        update_today(mutator)
+        print("[BATCH] today.md を更新しました")
+
+        completion = {
+            "v": 1,
+            "date": date,
+            "archive_sha256": hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+        }
+        atomic_write_text(
+            _completion_path(date),
+            json.dumps(completion, sort_keys=True, separators=(",", ":")) + "\n",
+            keep_backup=False,
+        )
+        journal.transition(operation_id, "succeeded", owner="scheduler", stage="complete")
+    except Exception:
+        try:
+            latest = journal.latest().get(operation_id)
+            if latest and latest["state"] == "running":
+                journal.transition(operation_id, "retry_wait", owner="scheduler", stage="error")
+        except JournalError:
+            pass
+        raise
+
+    try:
+        journal.discard_payloads(operation_id)
+    except JournalError:
+        pass
 
 
 def _generate_summary(date, day_convos):

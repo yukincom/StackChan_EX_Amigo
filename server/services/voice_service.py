@@ -1,12 +1,23 @@
 # services/voice_service.py
 """音声生成サービスモジュール"""
+import json
 from pathlib import Path
+import queue
 import threading
 import time
 from urllib.parse import quote, urlparse
 
 import requests
 from config import config
+from observability import emit_trace, trace_context
+from operation_journal import JournalError, get_operation_journal
+
+
+_VOICE_DELIVERY_QUEUE: queue.Queue[str] = queue.Queue(maxsize=100)
+_VOICE_DELIVERY_LOCK = threading.Lock()
+_VOICE_DELIVERY_QUEUED: set[str] = set()
+_VOICE_DELIVERY_WORKER_STARTED = False
+_VOICE_DELIVERY_WORKER: threading.Thread | None = None
 
 
 def _server_base_url() -> str:
@@ -147,33 +158,130 @@ def generate_voice_mixed(text, speaker_id=None, voice=None):
         print(f"❌ generate_voice_mixed error: {e}")
         return None
     
-def push_to_m5stack(voice_url: str, fire_and_forget: bool = True) -> bool:
-    """TTS生成済みのURLをM5Stackに送りつけて再生させる。"""
+def _enqueue_persisted_voice_deliveries() -> None:
+    journal = get_operation_journal()
+    for record in journal.pending("voice_push"):
+        op_id = record["op_id"]
+        with _VOICE_DELIVERY_LOCK:
+            if op_id in _VOICE_DELIVERY_QUEUED:
+                continue
+            try:
+                _VOICE_DELIVERY_QUEUE.put_nowait(op_id)
+            except queue.Full:
+                return
+            _VOICE_DELIVERY_QUEUED.add(op_id)
 
-    def _send() -> bool:
-        if fire_and_forget:
-            time.sleep(1.5)
-        try:
-            m5stack_url = f"http://{config.M5STACK_IP}:{config.M5STACK_PORT}/play"
-            playable_url = build_push_audio_url(voice_url)
+
+def _deliver_voice_operation(op_id: str) -> bool:
+    journal = get_operation_journal()
+    try:
+        request_data = json.loads(journal.load_payload(op_id, "request.json"))
+        if not isinstance(request_data, dict):
+            raise JournalError("private voice request is invalid")
+        voice_url = str(request_data["voice_url"])
+        delay_ms = int(request_data.get("delay_ms", 0))
+        if not voice_url or not 0 <= delay_ms <= 30_000:
+            raise JournalError("private voice request is invalid")
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError, UnicodeDecodeError, JournalError):
+        journal.transition(op_id, "failed", owner="worker", stage="error")
+        return False
+
+    journal.transition(op_id, "dispatching", owner="worker", stage="dispatch")
+    try:
+        if delay_ms:
+            time.sleep(delay_ms / 1000)
+        with trace_context(op_id):
             response = requests.post(
-                m5stack_url,
-                json={"voice_url": playable_url},
+                f"http://{config.M5STACK_IP}:{config.M5STACK_PORT}/play",
+                json={"voice_url": build_push_audio_url(voice_url)},
                 timeout=30,
             )
             response.raise_for_status()
-            return True
-        except Exception as e:
-            print(f"[PUSH] エラー: {e}")
-            return False
-
-    print(f"[PUSH] M5Stack再生指示: {build_push_audio_url(voice_url)}")
-
-    if fire_and_forget:
-        threading.Thread(target=_send, daemon=True).start()
+        journal.transition(op_id, "acked", owner="worker", stage="delivered")
+        journal.transition(op_id, "succeeded", owner="worker", stage="complete")
+        journal.discard_payloads(op_id)
         return True
+    except Exception as exc:
+        try:
+            latest = journal.latest().get(op_id)
+            if latest and latest["state"] == "dispatching":
+                journal.transition(op_id, "uncertain", owner="worker", stage="error")
+        except JournalError:
+            pass
+        emit_trace("voice", "push", "error", trace_id=op_id, error_type=type(exc).__name__)
+        print(f"[PUSH] delivery failed op={op_id[:8]}")
+        return False
 
-    return _send()
+
+def _voice_delivery_worker_loop() -> None:
+    while True:
+        op_id = _VOICE_DELIVERY_QUEUE.get()
+        try:
+            _deliver_voice_operation(op_id)
+        except Exception as exc:
+            emit_trace("voice", "push", "error", trace_id=op_id, error_type=type(exc).__name__)
+        finally:
+            with _VOICE_DELIVERY_LOCK:
+                _VOICE_DELIVERY_QUEUED.discard(op_id)
+            _VOICE_DELIVERY_QUEUE.task_done()
+            try:
+                _enqueue_persisted_voice_deliveries()
+            except JournalError:
+                pass
+
+
+def ensure_voice_delivery_worker() -> None:
+    global _VOICE_DELIVERY_WORKER_STARTED, _VOICE_DELIVERY_WORKER
+    with _VOICE_DELIVERY_LOCK:
+        if (
+            _VOICE_DELIVERY_WORKER_STARTED
+            and _VOICE_DELIVERY_WORKER is not None
+            and _VOICE_DELIVERY_WORKER.is_alive()
+        ):
+            return
+        worker = threading.Thread(
+            target=_voice_delivery_worker_loop,
+            name="voice-delivery-worker",
+            daemon=True,
+        )
+        worker.start()
+        _VOICE_DELIVERY_WORKER = worker
+        _VOICE_DELIVERY_WORKER_STARTED = True
+    _enqueue_persisted_voice_deliveries()
+
+
+def voice_delivery_ready() -> bool:
+    return bool(
+        _VOICE_DELIVERY_WORKER_STARTED
+        and _VOICE_DELIVERY_WORKER is not None
+        and _VOICE_DELIVERY_WORKER.is_alive()
+    )
+
+
+def push_to_m5stack(voice_url: str, fire_and_forget: bool = True) -> bool:
+    """Persist a playback request before asynchronous or synchronous delivery."""
+    try:
+        private_request = json.dumps(
+            {"voice_url": voice_url, "delay_ms": 1500 if fire_and_forget else 0},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        operation = get_operation_journal().create(
+            "voice_push",
+            owner="worker",
+            payloads={"request.json": private_request},
+        )
+    except (JournalError, OSError, TypeError, ValueError):
+        return False
+
+    op_id = operation["op_id"]
+    print(f"[PUSH] queued op={op_id[:8]}")
+    if not fire_and_forget:
+        return _deliver_voice_operation(op_id)
+
+    ensure_voice_delivery_worker()
+    _enqueue_persisted_voice_deliveries()
+    return True
 
 
 def delete_generated_voice_later(source_url: str, delay_seconds: int = 90) -> None:

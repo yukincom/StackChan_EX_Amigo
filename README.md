@@ -156,6 +156,13 @@ python3 -m tools.stackchan_lab smoke --repo .
 
 # 値を表示しない設定診断
 python3 -m tools.stackchan_lab doctor --repo . --env-dir ~/env
+
+# allowlist済み診断だけの共有用bundle（repository外へ新規作成）
+python3 -m tools.stackchan_lab support create --repo . --env-dir ~/env \
+  --output /safe/off-repo/amigo.stackchan-support.zip
+
+# env・JSON・SDテンプレートを値非表示で統一検査
+python3 -m tools.stackchan_lab config validate --repo . --env-dir ~/env
 ```
 
 初回だけ再現可能な Python 環境を作る場合は `uv sync --frozen --group test` を使います。これは core Python package を取得しますが、Kokoro/MLX やモデルは取得しません。詳しい範囲、復旧手順、現在固定している既知差分は [docs/no-device-lab.md](docs/no-device-lab.md) を参照してください。
@@ -168,6 +175,7 @@ python3 -m tools.stackchan_lab doctor --repo . --env-dir ~/env
 - server 構成: [docs/server.md](docs/server.md)
 - Vision: [docs/vision.md](docs/vision.md)
 - 実機なし保守ラボ: [docs/no-device-lab.md](docs/no-device-lab.md)
+- ローカルserver運用: [docs/local-service-operations.md](docs/local-service-operations.md)
 - Python 依存とライセンス: [docs/python-dependency-licenses.md](docs/python-dependency-licenses.md)
 
 ## 注意

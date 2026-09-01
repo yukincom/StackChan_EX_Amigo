@@ -11,6 +11,9 @@
 | fake service | Whisper/OpenAI 互換 STT・chat・TTS、voice server、固定 WAV/MP3、指定回数だけの HTTP/timeout/空/壊れた JSON |
 | Amigo server | app factory、主要 HTTP route、短すぎる音声、camera action、Vision queue full、runtime 非起動 |
 | 設定診断 | Python/package、dotenv の重複 key、数値/URL/path、JSON、書込先、ffmpeg。値は診断結果へ出さない |
+| 安全な追跡 | HTTP route、status、時間、byte数だけをローテーション付きJSONLへ保存。本文・query・header値・URL・例外文は保存しない |
+| 問合せ資料 | allowlistで再検査した追跡情報と環境診断だけを固定構成ZIPにし、hashで改ざんを検出 |
+| 処理台帳 | Vision、音声push、日次要約をappend-only journalとprivate spoolへ受付後に応答し、再起動時の状態を判定 |
 | 復旧 | 明示した設定・JSON・memory・archive の hash 付き ZIP、改ざん検知、空 directory への安全な restore |
 | ローカル保存 | `today.md` や ConfigUI 書込を一時ファイル + fsync + atomic replace で更新し、直前版を `.bak` に保持 |
 
@@ -59,6 +62,45 @@ python3 -m tools.stackchan_lab doctor --repo . --env-dir ~/env
 終了 code は、error があれば `1`、warning だけなら `0` です。warning は optional model/package や未設定 path を含みます。
 
 test import 時に実運用 dotenv を読ませない場合は、`STACKCHAN_SKIP_DOTENV=1` を使います。pytest では常にこの境界を設定し、runtime service、scheduler、起動音声、モデル preload を開始しません。
+
+## 秘密を含めない trace と support bundle
+
+通常のHTTP requestには `X-Trace-ID` が付き、既定では `~/.local/state/stackchan-ex-amigo/trace` に小さなJSONLを保存します。記録対象は固定したcomponent/operation/status、所要時間、request/response byte数などの数値だけです。request/response本文、query、header値、IP、prompt、会話、画像、音声、URL、設定値、例外messageには保存先のfield自体がありません。
+
+共有用資料は repository を再帰的に固めず、固定した6項目だけを新規ZIPへ書きます。
+
+```bash
+python3 -m tools.stackchan_lab support create \
+  --repo . \
+  --env-dir ~/env \
+  --output /safe/off-repo/amigo.stackchan-support.zip
+
+python3 -m tools.stackchan_lab support verify \
+  /safe/off-repo/amigo.stackchan-support.zip
+```
+
+bundleにはdotenv値、prompt/transcript、画像、音声、既存log、memory/archive、hostname/username、絶対path、Git remote/diffを入れません。traceも取り込む際にallowlistから再構築し、不明fieldや壊れた行を落とします。それでも共有前には必ず内容を確認してください。出力先はrepository外かつ未作成のpathだけを許可します。
+
+## Crash後に再開できる処理台帳
+
+既定の `~/.local/state/stackchan-ex-amigo/journal` に、内容を持たないappend-only JSONLとprivate spoolを分離して保存します。journalにはoperation ID、処理種別、状態、試行回数、payloadの個数・総byte数しか入りません。画像、transcript、音声URL、日次会話はmode 0600のspoolに置き、hash検証後だけ読みます。
+
+- VisionはJPEGと文脈をfsyncしてから `processing` を返し、成功時だけspoolを消します。
+- 非同期音声pushは受付を永続化してから返します。外部POST前は `dispatching`、応答確認後は `acked` です。
+- crash時の `running` は `retry_wait` へ戻します。POST済みか不明な `dispatching` は二重再生を避けるため `uncertain` とし、自動再送しません。
+- 日次要約はatomic archive、`today.md` 更新、archive hash付きcomplete markerの順で完了します。部分archiveの存在だけでは処理済みにしません。
+- JSONLの末尾だけが途中で切れた場合は最後の未完行を無視し、中間破損はfail-closedでreadinessを落とします。
+
+## 統一config検査
+
+```bash
+python3 -m tools.stackchan_lab config validate --repo . --env-dir ~/env
+python3 -m tools.stackchan_lab config plan --json-dir server/json
+```
+
+`validate` はenv key契約、announcements/member/reading map/voice catalog、SDテンプレートを同じ診断形式で検査し、値を出力しません。`plan` は旧announcement曜日flagと `children`/`master` driftの件数をread-onlyで返し、ファイルを変更しません。サーボlimit、人物割当、実LAN URLは機体・家庭ごとの判断が必要なので自動migration対象外です。
+
+serviceのliveness/readinessと起動wrapperは [local-service-operations.md](local-service-operations.md) を参照してください。
 
 ## 仮想 M5Stack を単体で起動
 

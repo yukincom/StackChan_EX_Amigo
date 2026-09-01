@@ -32,6 +32,8 @@ server/venv/
 server/json/
 server/memory/
 server/archive/
+server/state/
+server/diagnostics/
 server/songs/
 server/whisper.cpp/
 server/voice-MCP/
@@ -39,6 +41,7 @@ server/voice-MCP/
 .stackchan-lab/
 stackchan-lab-private/
 *.stackchan-snapshot.zip
+*.stackchan-support.zip
 # Generated voice/cache files
 /tmp/voice_gen_store/
 # PlatformIO / firmware build artifacts

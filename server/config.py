@@ -8,7 +8,17 @@ from dotenv import load_dotenv
 _BASE_DIR = Path(__file__).resolve().parent
 _ENV_DIR = Path(os.getenv("STACKCHAN_ENV_DIR", str(Path.home() / "env"))).expanduser()
 _JSON_DIR = Path(os.getenv("STACKCHAN_JSON_DIR", str(_BASE_DIR / "json"))).expanduser()
+_STATE_DIR = Path(
+    os.getenv(
+        "STACKCHAN_STATE_DIR",
+        str(Path.home() / ".local" / "state" / "stackchan-ex-amigo"),
+    )
+).expanduser()
+if not _STATE_DIR.is_absolute():
+    _STATE_DIR = (_BASE_DIR / _STATE_DIR).resolve()
 CONFIG_LOAD_ERRORS: list[str] = []
+_BOOL_TRUE = {"1", "true", "yes", "on"}
+_BOOL_FALSE = {"0", "false", "no", "off"}
 
 if os.getenv("STACKCHAN_SKIP_DOTENV", "").strip().lower() not in {"1", "true", "yes"}:
     load_dotenv(_ENV_DIR / ".env")
@@ -41,6 +51,18 @@ def _float_env(key: str, default: float) -> float:
         return default
 
 
+def _bool_env(key: str, default: bool) -> bool:
+    raw = os.getenv(key, "").strip().lower()
+    if not raw:
+        return default
+    if raw in _BOOL_TRUE:
+        return True
+    if raw in _BOOL_FALSE:
+        return False
+    CONFIG_LOAD_ERRORS.append(f"{key}: expected boolean")
+    return default
+
+
 def _path_env(key: str, default: Path) -> str:
     raw = os.getenv(key, "").strip()
     path = Path(raw).expanduser() if raw else default
@@ -67,6 +89,13 @@ class Config:
     LOAD_ERRORS = CONFIG_LOAD_ERRORS
     ENV_DIR = str(_ENV_DIR)
     JSON_DIR = str(_JSON_DIR)
+    STATE_DIR = str(_STATE_DIR.resolve())
+    TRACE_ENABLED = _bool_env("TRACE_ENABLED", True)
+    TRACE_DIR = _path_env("TRACE_DIR", Path(STATE_DIR) / "trace")
+    TRACE_MAX_BYTES = _int_env("TRACE_MAX_BYTES", 2_000_000)
+    TRACE_KEEP_FILES = _int_env("TRACE_KEEP_FILES", 3)
+    SUPPORT_BUNDLE_MAX_EVENTS = _int_env("SUPPORT_BUNDLE_MAX_EVENTS", 500)
+    JOURNAL_DIR = _path_env("JOURNAL_DIR", Path(STATE_DIR) / "journal")
     # AI モデル設定
     AI_PROVIDER      = os.getenv("AI_PROVIDER", "MLX").strip().lower()
     AI_CHAT_MODEL    = os.getenv("AI_CHAT_MODEL", "mlx-community/Qwen3.6-35B-A3B-4bit")
