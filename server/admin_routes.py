@@ -334,11 +334,14 @@ ENV_GROUPS = [
         ]
     },
     {
-        "group": "📱 通信設定 / LINE_Render,Discord（空欄可）",
+        "group": "📱 通信設定 / LINE,Discord（空欄可）",
         "items": [
+            {"key": "LINE_QUEUE_PULL_URL",  "label": "LINE Queue Pull URL", "type": "text"},
+            {"key": "LINE_QUEUE_API_TOKEN", "label": "LINE Queue Token",    "type": "password"},
+            {"key": "LINE_RELAY_KEY",       "label": "LINE Relay暗号鍵",    "type": "password"},
             {"key": "DISCORD_BOT_TOKEN",  "label": "Discord Botトークン",  "type": "password"},
             {"key": "DISCORD_CHANNEL_ID", "label": "Discord チャンネルID", "type": "text"},
-            {"key": "RENDER_URL",         "label": "Render URL",           "type": "text"},
+            {"key": "RENDER_URL",         "label": "旧Render URL（移行用）", "type": "text"},
         ]
     },
     {

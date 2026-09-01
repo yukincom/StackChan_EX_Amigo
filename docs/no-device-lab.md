@@ -13,7 +13,8 @@
 | 設定診断 | Python/package、dotenv の重複 key、数値/URL/path、JSON、書込先、ffmpeg。値は診断結果へ出さない |
 | 安全な追跡 | HTTP route、status、時間、byte数だけをローテーション付きJSONLへ保存。本文・query・header値・URL・例外文は保存しない |
 | 問合せ資料 | allowlistで再検査した追跡情報と環境診断だけを固定構成ZIPにし、hashで改ざんを検出 |
-| 処理台帳 | Vision、音声push、日次要約をappend-only journalとprivate spoolへ受付後に応答し、再起動時の状態を判定 |
+| 処理台帳 | Vision、音声push、日次要約、LINE通知をappend-only journalとprivate spoolへ受付後に応答し、再起動時の状態を判定 |
+| LINE Queue | AES-GCM暗号文、固定Cloudflare URL、認証header、永続化後ACK、retry、redelivery重複排除、60秒schedulerを合成fixtureで確認 |
 | 復旧 | 明示した設定・JSON・memory・archive の hash 付き ZIP、改ざん検知、空 directory への安全な restore |
 | ローカル保存 | `today.md` や ConfigUI 書込を一時ファイル + fsync + atomic replace で更新し、直前版を `.bak` に保持 |
 
@@ -89,6 +90,7 @@ bundleにはdotenv値、prompt/transcript、画像、音声、既存log、memory
 - 非同期音声pushは受付を永続化してから返します。外部POST前は `dispatching`、応答確認後は `acked` です。
 - crash時の `running` は `retry_wait` へ戻します。POST済みか不明な `dispatching` は二重再生を避けるため `uncertain` とし、自動再送しません。
 - 日次要約はatomic archive、`today.md` 更新、archive hash付きcomplete markerの順で完了します。部分archiveの存在だけでは処理済みにしません。
+- LINE通知は暗号文を復号し、ローカルmember照合とprivate spoolへのfsync後だけCloudflare QueueへACKします。同じ`webhookEventId`のredeliveryは決定的operation IDで重複排除します。
 - JSONLの末尾だけが途中で切れた場合は最後の未完行を無視し、中間破損はfail-closedでreadinessを落とします。
 
 ## 統一config検査
@@ -170,6 +172,7 @@ python3 -m tools.stackchan_lab snapshot restore \
 - server の route、prompt 前後処理、設定 validation、ログ/記憶、Vision queue、復旧処理
 - firmware/server 間の HTTP payload と error handling の大半
 - timeout、壊れた JSON、空 response、busy、queue full の再現
+- LINE Queueの暗号化payload、認証付きpull、ACK/retry、redeliveryとローカル再開
 - HTTP error / socket timeout / connection refused の区別、camera 部分送信 retry、完送後 ACK 消失
 - dependency lock、CI、静的な firmware route drift 検知
 
@@ -186,3 +189,4 @@ python3 -m tools.stackchan_lab snapshot restore \
 この repository のラボは合成データだけで誰でも再現できる engine です。個人の hostname、LAN 構成、実メンバー、実会話、写真、音声、snapshot、secret は置きません。家庭固有の横断設定と運用 wrapper は private maintenance repository の隔離 directory で管理し、実データ自体はそちらでも ignore します。
 
 Python package と追加 tool のライセンス確認は [python-dependency-licenses.md](python-dependency-licenses.md) にまとめています。
+LINEの60秒pull経路、公開/非公開境界、切替と切戻しは [line-queue-relay.md](line-queue-relay.md) を参照してください。

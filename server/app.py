@@ -17,7 +17,7 @@ from llm_client import preload_mlx_model
 from member_loader import has_line_users, has_discord_users
 from services.chat_service import process_chat, resolve_speaker_context, trigger_stack_ai_camera_async
 from services.discord_service import _init_last_message_id
-from services.scheduler_service import setup_scheduler, stop_scheduler
+from services.scheduler_service import line_delivery_configured, setup_scheduler, stop_scheduler
 from services.batch_service import run_if_needed
 from services.speech_service import speech_service
 from services.voice_service import (
@@ -46,18 +46,20 @@ def _recover_operation_journal() -> None:
 
 def check_notification_config():
     """通知サービスの設定確認（起動時のみ）"""
-    line_ok    = has_line_users()
+    line_users = has_line_users()
+    line_ok    = line_users and line_delivery_configured()
     discord_ok = has_discord_users()
 
     if not line_ok and not discord_ok:
-        print("[NOTIFY] ⚠️ LINE・Discord ともにユーザーIDが未設定です")
+        print("[NOTIFY] ⚠️ LINE relayまたはDiscordユーザーが未設定です")
         print("[NOTIFY] 通知機能はオフで起動します（会話機能は使えます）")
         return False
 
     if line_ok:
         print("[NOTIFY] ✅ LINE通知: 有効")
     else:
-        print("[NOTIFY] LINE通知: ユーザーID未設定のためオフ")
+        reason = "relay未設定" if line_users else "ユーザーID未設定"
+        print(f"[NOTIFY] LINE通知: {reason}のためオフ")
 
     if discord_ok:
         print("[NOTIFY] ✅ Discord通知: 有効")

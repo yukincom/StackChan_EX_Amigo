@@ -20,6 +20,7 @@
 - AI 発カメラ起動の挙動は、`server` 側の会話プロンプトと使う `LLM` の組み合わせで調整可能
 - `today.md` / `archive` / 起動時バッチ要約によるログ運用
 - SDカード キャッシュ音声とCONFIG UI からのキャッシュ音声運用
+- LINE通知を署名検証Webhookから暗号化Queueへ受け、自宅Macが60秒ごとにpullする経路（自宅port公開・firmware変更なし）
 
 ## リポジトリ構成
 
@@ -177,6 +178,7 @@ python3 -m tools.stackchan_lab config validate --repo . --env-dir ~/env
 - 実機なし保守ラボ: [docs/no-device-lab.md](docs/no-device-lab.md)
 - ローカルserver運用: [docs/local-service-operations.md](docs/local-service-operations.md)
 - Python 依存とライセンス: [docs/python-dependency-licenses.md](docs/python-dependency-licenses.md)
+- LINE Queue relay: [docs/line-queue-relay.md](docs/line-queue-relay.md)
 
 ## 注意
 

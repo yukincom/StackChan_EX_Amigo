@@ -6,7 +6,12 @@ import stat
 
 import pytest
 
-from operation_journal import JournalCorruptionError, JournalError, OperationJournal
+from operation_journal import (
+    JournalCorruptionError,
+    JournalDuplicateError,
+    JournalError,
+    OperationJournal,
+)
 
 
 def test_private_payload_is_durable_but_absent_from_journal(tmp_path):
@@ -84,3 +89,37 @@ def test_journal_never_accepts_free_form_metadata_or_payload_names(tmp_path):
         journal.create("vision", owner="api", payloads={"../secret.txt": b"x"})
     with pytest.raises(JournalError, match="kind"):
         journal.create("free_form_kind", owner="api")
+
+
+def test_create_once_is_idempotent_without_storing_external_identifier(tmp_path):
+    journal = OperationJournal(tmp_path / "journal")
+    operation_id = "0123456789abcdef0123456789abcdef"
+    sentinel = b"DO_NOT_LEAK_line_message"
+
+    first, created = journal.create_once(
+        "line_notification",
+        operation_id,
+        owner="scheduler",
+        payloads={"request.json": sentinel},
+    )
+    second, created_again = journal.create_once(
+        "line_notification",
+        operation_id,
+        owner="scheduler",
+        payloads={"request.json": b"replacement-must-not-win"},
+    )
+
+    assert created is True
+    assert created_again is False
+    assert second == first
+    assert journal.load_payload(operation_id, "request.json") == sentinel
+    assert sentinel not in journal.journal_path.read_bytes()
+
+
+def test_create_once_rejects_cross_kind_collision(tmp_path):
+    journal = OperationJournal(tmp_path / "journal")
+    operation_id = "fedcba9876543210fedcba9876543210"
+    journal.create_once("voice_push", operation_id, owner="worker")
+
+    with pytest.raises(JournalDuplicateError, match="another kind"):
+        journal.create_once("line_notification", operation_id, owner="scheduler")

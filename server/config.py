@@ -162,8 +162,12 @@ class Config:
     # 音声の最小バイト数（マジックナンバー）
     SPEECH_MIN_BYTES = _int_env("SPEECH_MIN_BYTES", 10000)
 
-    # Render settings
+    # LINE relay settings. Queue が設定済みなら Render より優先する。
     POLL_INTERVAL = 60
+    LINE_QUEUE_PULL_URL = os.getenv("LINE_QUEUE_PULL_URL", "").strip()
+    LINE_QUEUE_API_TOKEN = os.getenv("LINE_QUEUE_API_TOKEN", "").strip()
+    LINE_RELAY_KEY = os.getenv("LINE_RELAY_KEY", "").strip()
+    # 移行期間だけ残す旧 Render relay。
     RENDER_URL = os.getenv("RENDER_URL", "")
 
     #SERVER setting

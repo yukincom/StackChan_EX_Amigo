@@ -20,28 +20,35 @@ def generate_notification_message(sender_name, original_message):
         return f"{sender_name}からメッセージだよ。「{original_message}」だってさ！"
 
 
-def process_notification(user_id, message):
+def process_notification(user_id, message, *, delivery_key=None):
     """LINE/Discord通知を処理してM5Stackにpushする"""
     sender_name = get_call_name_by_user_id(user_id, default=config.FAMILY_DEFAULT)
     notification_message = generate_notification_message(sender_name, mask_names(message))
 
     # 音声生成 → M5Stackにpush
     voice_result = generate_voice(notification_message)
-    if voice_result:
-        push_to_m5stack(voice_result["source_url"])
-    else:
-        print("[NOTIFY] 音声生成失敗")
-
-    # メモリに保存
-    memory = RobotMemory()
-    memory.add_conversation(
-        "notify",
-        mask_names(message),
-        "",
-        speaker_label=f"[LINE通知] {sender_name}"
+    delivery_accepted = bool(
+        voice_result
+        and push_to_m5stack(
+            voice_result["source_url"],
+            idempotency_key=delivery_key,
+        )
     )
+    if not delivery_accepted:
+        print("[NOTIFY] 音声生成または配送受付に失敗")
+
+    # 音声配送がローカル台帳へ受理された後だけメモリへ保存する。
+    if delivery_accepted:
+        memory = RobotMemory()
+        memory.add_conversation(
+            "notify",
+            mask_names(message),
+            "",
+            speaker_label=f"[LINE通知] {sender_name}"
+        )
 
     return {
+        "success":       delivery_accepted,
         "sender":        sender_name,
         "message":       notification_message,
         "original_text": message,

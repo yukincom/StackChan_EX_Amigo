@@ -7,6 +7,7 @@
 | package | version | license | 用途 |
 | --- | ---: | --- | --- |
 | APScheduler | 3.11.2 | MIT | 既存 scheduler |
+| cryptography | 50.0.1 | Apache-2.0 OR BSD-3-Clause | LINE Queue payload の AES-GCM 復号 |
 | Flask | 3.1.3 | BSD-3-Clause | 既存 server と仮想 HTTP service |
 | Werkzeug | 3.1.8 | BSD-3-Clause | 既存 server、loopback test server |
 | google-genai | 1.72.0 | Apache-2.0 | 既存 cloud provider adapter |

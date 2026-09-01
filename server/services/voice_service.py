@@ -1,5 +1,6 @@
 # services/voice_service.py
 """音声生成サービスモジュール"""
+import hashlib
 import json
 from pathlib import Path
 import queue
@@ -258,7 +259,18 @@ def voice_delivery_ready() -> bool:
     )
 
 
-def push_to_m5stack(voice_url: str, fire_and_forget: bool = True) -> bool:
+def _voice_operation_id(idempotency_key: str) -> str:
+    if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 256:
+        raise ValueError("idempotency key is invalid")
+    return hashlib.sha256(f"voice_push\0{idempotency_key}".encode("utf-8")).hexdigest()[:32]
+
+
+def push_to_m5stack(
+    voice_url: str,
+    fire_and_forget: bool = True,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
     """Persist a playback request before asynchronous or synchronous delivery."""
     try:
         private_request = json.dumps(
@@ -266,15 +278,36 @@ def push_to_m5stack(voice_url: str, fire_and_forget: bool = True) -> bool:
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")
-        operation = get_operation_journal().create(
-            "voice_push",
-            owner="worker",
-            payloads={"request.json": private_request},
-        )
+        journal = get_operation_journal()
+        if idempotency_key is None:
+            operation = journal.create(
+                "voice_push",
+                owner="worker",
+                payloads={"request.json": private_request},
+            )
+            created = True
+        else:
+            operation, created = journal.create_once(
+                "voice_push",
+                _voice_operation_id(idempotency_key),
+                owner="worker",
+                payloads={"request.json": private_request},
+            )
     except (JournalError, OSError, TypeError, ValueError):
         return False
 
     op_id = operation["op_id"]
+    if not created:
+        if operation["state"] in {"failed", "rejected"}:
+            return False
+        if fire_and_forget:
+            ensure_voice_delivery_worker()
+            _enqueue_persisted_voice_deliveries()
+            return True
+        if operation["state"] in {"accepted", "retry_wait"}:
+            return _deliver_voice_operation(op_id)
+        return operation["state"] in {"acked", "succeeded"}
+
     print(f"[PUSH] queued op={op_id[:8]}")
     if not fire_and_forget:
         return _deliver_voice_operation(op_id)

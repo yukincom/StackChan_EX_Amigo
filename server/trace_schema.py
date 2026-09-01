@@ -11,7 +11,7 @@ TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+
 SAFE_ROUTE_RE = re.compile(r"/[A-Za-z0-9_./:<>{}-]{0,127}")
 COMPONENTS = {
     "http", "stt", "chat", "llm", "vision", "vlm", "tts", "voice",
-    "m5", "batch", "journal", "discord", "runtime", "lab",
+    "m5", "batch", "journal", "line", "discord", "runtime", "lab",
 }
 OPERATIONS = {
     "transcribe", "complete", "search", "summarize", "analyze", "synthesize",
@@ -24,7 +24,7 @@ TAG_VALUES = {
     "requester": {"user", "ai", "system", "unknown"},
     "mode": {"normal", "search", "archive", "transient", "unknown"},
     "source": {"api", "worker", "scheduler", "startup", "manual", "unknown"},
-    "job_kind": {"daily_summary", "vision", "voice_push", "discord", "unknown"},
+    "job_kind": {"daily_summary", "vision", "voice_push", "line_notification", "discord", "unknown"},
 }
 ALLOWED_METRICS = {
     "status_code", "duration_ms", "request_bytes", "response_bytes",

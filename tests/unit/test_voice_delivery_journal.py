@@ -61,3 +61,22 @@ def test_lost_response_becomes_uncertain_and_is_never_auto_retried(monkeypatch, 
     assert operation["state"] == "uncertain"
     assert journal.pending("voice_push") == []
     assert (journal.spool_dir / operation["op_id"]).is_dir()
+
+
+def test_idempotency_key_reuses_one_persisted_delivery(monkeypatch, tmp_path):
+    journal = _install_isolated_delivery(monkeypatch, tmp_path)
+
+    assert voice_service.push_to_m5stack(
+        "http://127.0.0.1/voice/original",
+        idempotency_key="line-operation-1",
+    )
+    assert voice_service.push_to_m5stack(
+        "http://127.0.0.1/voice/retry-must-not-replace",
+        idempotency_key="line-operation-1",
+    )
+
+    assert len(journal.latest()) == 1
+    operation = next(iter(journal.latest().values()))
+    payload = journal.load_payload(operation["op_id"], "request.json").decode()
+    assert "original" in payload
+    assert "retry-must-not-replace" not in payload

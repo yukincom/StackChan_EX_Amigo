@@ -10,6 +10,11 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from services.weather_service import update_weather, get_weather_response
 from services.voice_service import generate_voice, cleanup_old_voice_files, push_to_m5stack
 from services.notification_service import process_notification
+from services.line_queue_service import (
+    ensure_line_notification_worker,
+    line_queue_configured,
+    poll_line_queue,
+)
 from services.discord_service import poll_discord
 from member_loader import has_line_users, has_discord_users
 from memory_manager import RobotMemory 
@@ -95,6 +100,11 @@ def poll_render():
         print(f"[ERROR] poll_render: {e}")
 
 
+def line_delivery_configured() -> bool:
+    """Queueを優先し、移行中だけ旧Render relayを許可する。"""
+    return line_queue_configured() or bool(config.RENDER_URL.strip())
+
+
 def scheduled_cleanup():
     """スケジュールドクリーンアップ実行"""
     try:
@@ -113,8 +123,15 @@ def setup_scheduler(notification_enabled=True):
 
     if notification_enabled:
         if has_line_users():
-            scheduler.add_job(poll_render, "interval", seconds=config.POLL_INTERVAL)
-            print("[SCHEDULER] LINE ポーリング開始")
+            if line_queue_configured():
+                ensure_line_notification_worker()
+                scheduler.add_job(poll_line_queue, "interval", seconds=config.POLL_INTERVAL)
+                print(f"[SCHEDULER] LINE Queueポーリング開始（{config.POLL_INTERVAL}秒）")
+            elif config.RENDER_URL.strip():
+                scheduler.add_job(poll_render, "interval", seconds=config.POLL_INTERVAL)
+                print("[SCHEDULER] 旧LINE Renderポーリング開始")
+            else:
+                print("[SCHEDULER] LINE relay未設定のため通知を開始しません")
 
         if has_discord_users():
             scheduler.add_job(poll_discord, "interval", seconds=config.POLL_INTERVAL)

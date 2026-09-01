@@ -24,7 +24,7 @@ from config import config
 
 
 JOURNAL_SCHEMA_VERSION = 1
-KINDS = {"vision", "voice_push", "daily_summary", "discord"}
+KINDS = {"vision", "voice_push", "daily_summary", "discord", "line_notification"}
 STATES = {
     "accepted", "running", "dispatching", "acked", "succeeded",
     "retry_wait", "failed", "rejected", "uncertain",
@@ -58,6 +58,10 @@ class JournalError(RuntimeError):
 
 
 class JournalCorruptionError(JournalError):
+    pass
+
+
+class JournalDuplicateError(JournalError):
     pass
 
 
@@ -301,6 +305,89 @@ class OperationJournal:
             shutil.rmtree(spool_path, ignore_errors=True)
             raise
         return record
+
+    def create_once(
+        self,
+        kind: str,
+        operation_id: str,
+        *,
+        owner: str,
+        payloads: Mapping[str, bytes] | None = None,
+    ) -> tuple[dict, bool]:
+        """Create a deterministic operation, or return the existing one.
+
+        The caller supplies an opaque 128-bit operation ID derived from an
+        external idempotency key. The external identifier itself is never
+        written to journal metadata.
+        """
+        if kind not in KINDS or owner not in OWNERS:
+            raise JournalError("operation kind or owner is invalid")
+        if not isinstance(operation_id, str) or not _OP_ID_RE.fullmatch(operation_id):
+            raise JournalError("operation ID is invalid")
+
+        checked_payloads: dict[str, bytes] = {}
+        total_bytes = 0
+        for name, value in (payloads or {}).items():
+            if (
+                not isinstance(name, str)
+                or name == "manifest.json"
+                or not _PAYLOAD_NAME_RE.fullmatch(name)
+            ):
+                raise JournalError("private payload name is invalid")
+            if not isinstance(value, bytes):
+                raise JournalError("private payload must be bytes")
+            total_bytes += len(value)
+            if total_bytes > _MAX_PAYLOAD_BYTES:
+                raise JournalError("private payload is too large")
+            checked_payloads[name] = value
+
+        op_id = operation_id
+        spool_path = self._spool_path(op_id)
+        with self._exclusive():
+            records = self._read_records_unlocked()
+            latest = self._latest(records)
+            existing = latest.get(op_id)
+            if existing is not None:
+                if existing["kind"] != kind:
+                    raise JournalDuplicateError("operation ID belongs to another kind")
+                return existing, False
+
+            manifest: dict[str, dict[str, int | str]] = {}
+            if checked_payloads:
+                if spool_path.exists() or spool_path.is_symlink():
+                    raise JournalDuplicateError("operation spool already exists")
+                spool_path.mkdir(mode=0o700)
+                os.chmod(spool_path, 0o700)
+                try:
+                    for name, value in sorted(checked_payloads.items()):
+                        _write_private_atomic(spool_path / name, value)
+                        manifest[name] = {"size": len(value), "sha256": _sha256(value)}
+                    _write_private_atomic(
+                        spool_path / "manifest.json",
+                        (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"),
+                    )
+                    _fsync_directory(self.spool_dir)
+                except Exception:
+                    shutil.rmtree(spool_path, ignore_errors=True)
+                    raise
+
+            record = {
+                "v": JOURNAL_SCHEMA_VERSION,
+                "ts": _utc_now(),
+                "op_id": op_id,
+                "kind": kind,
+                "state": "accepted",
+                "stage": "queued",
+                "attempt": 0,
+                "owner": owner,
+                "meta": {"payload_count": len(checked_payloads), "payload_bytes": total_bytes},
+            }
+            try:
+                self._append_unlocked(record)
+            except Exception:
+                shutil.rmtree(spool_path, ignore_errors=True)
+                raise
+            return record, True
 
     def transition(self, op_id: str, state: str, *, owner: str, stage: str) -> dict:
         if state not in STATES or owner not in OWNERS or stage not in STAGES:
