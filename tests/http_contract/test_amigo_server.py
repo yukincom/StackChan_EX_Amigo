@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import queue
 
 import pytest
@@ -199,20 +200,25 @@ def test_vision_queue_full_returns_429(monkeypatch):
     assert second.get_json()["error"] == "vision_busy"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Current firmware/server v1 upload contract omits capture mode; fix in a batched firmware campaign",
-)
-def test_vision_upload_v2_preserves_capture_mode(monkeypatch):
+@pytest.mark.parametrize("query, expected", [
+    ("?mode=archive", "archive"),
+    ("?mode=transient", "transient"),
+    ("?mode=unknown", "transient"),
+    ("?mode=", "transient"),
+    ("?mode=ARCHIVE", "transient"),
+    ("", None),
+])
+def test_vision_upload_preserves_capture_mode(monkeypatch, query, expected):
     lab_queue = queue.Queue(maxsize=1)
     monkeypatch.setattr(app_module, "_VISION_QUEUE", lab_queue)
     monkeypatch.setattr(app_module, "_ensure_vision_worker", lambda: None)
     client = app_module.create_app({"TESTING": True}).test_client()
     response = client.post(
-        "/vision/upload?mode=archive",
+        f"/vision/upload{query}",
         data=b"J" * 600,
         content_type="image/jpeg",
     )
     assert response.status_code == 200
-    queued_item = lab_queue.get_nowait()
-    assert queued_item[-1] == "archive"
+    op_id = lab_queue.get_nowait()
+    request_data = json.loads(app_module.get_operation_journal().load_payload(op_id, "request.json"))
+    assert request_data["mode"] == expected

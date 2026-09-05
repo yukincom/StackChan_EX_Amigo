@@ -509,6 +509,8 @@ bool camera_capture_post_upload(
   upload_url += url_encode_component(String(speaker && speaker[0] ? speaker : "master"));
   upload_url += "&sl=";
   upload_url += url_encode_component(String(speaker_label ? speaker_label : ""));
+  upload_url += "&mode=";
+  upload_url += is_archive_mode(mode) ? "archive" : "transient";
 
   int code = -1;
   bool body_sent_completely = false;

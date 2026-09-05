@@ -40,7 +40,10 @@ def build_parser() -> argparse.ArgumentParser:
     device.add_argument("--host", default="127.0.0.1")
     device.add_argument("--port", type=int, default=18080)
     device.add_argument("--server-url", default="")
-    device.add_argument("--camera-upload-v2", action="store_true")
+    device.add_argument("--camera-upload-v2", action="store_true", default=True,
+                        help=argparse.SUPPRESS)
+    device.add_argument("--legacy-camera-upload", action="store_false", dest="camera_upload_v2",
+                        help="reproduce older firmware that omits capture mode")
 
     snapshot = subparsers.add_parser("snapshot", help="create/verify/restore a checked snapshot")
     snapshot_sub = snapshot.add_subparsers(dest="snapshot_command", required=True)

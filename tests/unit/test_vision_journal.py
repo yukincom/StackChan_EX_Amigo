@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import queue
 
+import pytest
+
 import app as app_module
 from operation_journal import OperationJournal
 
@@ -37,14 +39,18 @@ def test_vision_acceptance_persists_private_request_before_response(monkeypatch,
     assert sentinel.encode() not in journal.journal_path.read_bytes()
 
 
-def test_vision_worker_completes_journal_and_removes_private_spool(monkeypatch, tmp_path):
+@pytest.mark.parametrize("capture_mode", [None, "archive", "transient"])
+def test_vision_worker_completes_journal_and_removes_private_spool(monkeypatch, tmp_path, capture_mode):
     journal = _install_isolated_journal(monkeypatch, tmp_path)
-    request_data = json.dumps({
+    request_fields = {
         "requester": "user",
         "transcript": "fixture",
         "speaker": "master",
         "speaker_label": "",
-    }).encode()
+    }
+    if capture_mode is not None:
+        request_fields["mode"] = capture_mode
+    request_data = json.dumps(request_fields).encode()
     operation = journal.create(
         "vision",
         owner="api",
@@ -52,13 +58,14 @@ def test_vision_worker_completes_journal_and_removes_private_spool(monkeypatch, 
     )
     seen = {}
 
-    def fake_handle(image, requester, transcript, speaker, speaker_label):
+    def fake_handle(image, requester, transcript, speaker, speaker_label, *, capture_mode):
         seen.update({
             "image": image,
             "requester": requester,
             "transcript": transcript,
             "speaker": speaker,
             "speaker_label": speaker_label,
+            "capture_mode": capture_mode,
         })
         return {"success": True}
 
@@ -67,6 +74,7 @@ def test_vision_worker_completes_journal_and_removes_private_spool(monkeypatch, 
 
     assert seen["image"] == b"J" * 600
     assert seen["transcript"] == "fixture"
+    assert seen["capture_mode"] == capture_mode
     assert journal.latest()[operation["op_id"]]["state"] == "succeeded"
     assert not (journal.spool_dir / operation["op_id"]).exists()
 

@@ -261,6 +261,7 @@ def _process_vision_operation(op_id: str) -> None:
             str(request_data.get("transcript", "")),
             str(request_data.get("speaker", "master")),
             str(request_data.get("speaker_label", "")),
+            capture_mode=request_data.get("mode"),
         )
     if isinstance(result, dict) and result.get("success"):
         journal.transition(op_id, "succeeded", owner="worker", stage="complete")
@@ -368,6 +369,11 @@ def vision_upload():
         transcript = request.args.get("t", "")         # URL decoded 自動
         speaker = request.args.get("s", "master")
         speaker_label = request.args.get("sl", "")
+        # Missing mode is a pre-upgrade firmware request. Preserve its legacy
+        # keyword behavior; an explicit transient request must never archive.
+        capture_mode = request.args.get("mode")
+        if capture_mode is not None and capture_mode != "archive":
+            capture_mode = "transient"
 
         with _VISION_JOB_LOCK:
             _VISION_JOB_SEQ += 1
@@ -379,6 +385,7 @@ def vision_upload():
                 "transcript": transcript,
                 "speaker": speaker,
                 "speaker_label": speaker_label,
+                "mode": capture_mode,
             },
             ensure_ascii=False,
             separators=(",", ":"),

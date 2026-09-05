@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-CONTRACT_VERSION = "1.0"
+CONTRACT_VERSION = "1.1"
 
 
 @dataclass(frozen=True)

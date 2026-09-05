@@ -213,7 +213,7 @@ def run_smoke_scenario(repo_root: Path | None = None) -> dict[str, Any]:
                                         json={
                                             "requester": "user",
                                             "context": "見て",
-                                            "mode": "transient",
+                                            "mode": "archive",
                                             "speaker": "master",
                                         },
                                         timeout=3,
@@ -239,11 +239,8 @@ def run_smoke_scenario(repo_root: Path | None = None) -> dict[str, Any]:
                                         and queued_request.get("transcript") == "見て"
                                         and queued_request.get("speaker") == "master"
                                     )
-                                    # Diagnostic metadata only: this must never make a check green.
-                                    known_gaps["camera_mode_not_transmitted_by_current_firmware"] = (
-                                        device_state.camera_upload_v2 is False
-                                        and queued_vision is not None
-                                        and "mode" not in queued_request
+                                    checks["camera_capture_mode_preserved"] = (
+                                        queued_request.get("mode") == "archive"
                                     )
 
             required_ok = bool(checks) and all(checks.values())

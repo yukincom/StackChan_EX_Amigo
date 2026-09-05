@@ -111,6 +111,7 @@ def handle_vision_upload(
     transcript: str,    # 発話テキスト（"見て！"など）
     speaker: str = "master",
     speaker_label: str = "",
+    capture_mode: str | None = None,
 ) -> dict:
     """
     M5Stackから受信した画像を処理してTTS応答を生成。
@@ -188,8 +189,14 @@ def handle_vision_upload(
         print(f"[VISION] vlm_desc({len(vlm_desc or '')}文字): {mask_names((vlm_desc or '')[:80])}")
         print(f"[AI-VISION] ({len(ai_response)}文字): {mask_names(ai_response)}")
 
-        archive_requested = _contains_any_keyword(transcript, config.VISION_ARCHIVE_KEYWORDS)
-        transient_requested = _contains_any_keyword(transcript, config.VISION_TRANSIENT_KEYWORDS)
+        if capture_mode is None:
+            # Old firmware did not send mode. Preserve that behavior until
+            # the batched firmware update is explicitly flashed by the user.
+            archive_requested = _contains_any_keyword(transcript, config.VISION_ARCHIVE_KEYWORDS)
+            transient_requested = _contains_any_keyword(transcript, config.VISION_TRANSIENT_KEYWORDS)
+        else:
+            archive_requested = capture_mode == "archive"
+            transient_requested = not archive_requested
 
         if archive_requested:
             archived_path = _archive_vision_capture(

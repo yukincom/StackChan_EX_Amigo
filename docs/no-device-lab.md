@@ -115,6 +115,10 @@ python3 -m tools.stackchan_lab serve-device \
 
 制御 endpoint はローカル検証専用です。
 
+仮想端末は既定で撮影modeを送る改修版を再現します。未Flashの旧版を再現する場合は
+`serve-device` に `--legacy-camera-upload` を追加してください。既存の
+`--camera-upload-v2` も互換用に受け付けます。
+
 - `GET /__lab__/state`: 現在状態と event 履歴
 - `POST /__lab__/advance`: 再生/camera を一段進める
 - `POST /__lab__/reset`: 状態と fault を初期化
@@ -161,9 +165,15 @@ python3 -m tools.stackchan_lab snapshot restore \
 
 ## 現在固定している既知差分
 
-現 firmware は camera trigger で `archive` / `transient` を内部利用しますが、`/vision/upload` query には mode を載せません。ラボは旧契約を再現し、server 側で mode が保持されるべき test を strict xfail にしています。
+撮影modeの欠落は本改修のソースで修正しました。`/vision/upload` の任意query `mode` を
+`archive` / `transient` として送り、serverの受付→private spool→handlerへ引き継ぎます。
+対応テストはstrict xfailではなく通常の成功が必須で、smokeでもmode保持を検査します。
+ラボの契約版は1.1です。これはHTTPで送るprotocol IDではありません。
 
-この修正には firmware 変更と、最終的に一度だけ実機確認が必要です。今回のラボ導入では firmware を変更せず、フラッシュも行いません。
+- 明示modeが発話中のキーワードより優先します。空文字・未知値は `transient`。
+- 完全にmodeを省略した旧firmwareと、mode fieldのない旧spoolは、従来のキーワード判断を維持します。
+- `transient` は資料アーカイブを作らない意味です。明示的なカメラ会話の通常履歴や処理中の一時ファイルを禁止する意味ではありません。一時画像は従来どおり成功・失敗後に削除します。
+- この変更は未Flashです。シミュレータの成功は実機のカメラや通信を検証したことにはなりません。
 
 ## どこまで実機不要か
 

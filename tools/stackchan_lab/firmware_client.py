@@ -68,7 +68,7 @@ class FirmwareClient:
         transcript: str = "",
         speaker: str = "master",
         speaker_label: str = "",
-        mode: str | None = None,
+        mode: str | None = "transient",
     ) -> requests.Response:
         params = {
             "r": requester,
@@ -76,10 +76,9 @@ class FirmwareClient:
             "s": speaker,
             "sl": speaker_label,
         }
-        # mode=None reproduces the current firmware contract. Supplying mode is
-        # the proposed v2 contract and lets tests expose the current drift.
+        # Explicit None reproduces firmware before the batched mode fix.
         if mode is not None:
-            params["mode"] = mode
+            params["mode"] = "archive" if mode == "archive" else "transient"
         return requests.post(
             f"{self.server_url}/vision/upload",
             params=params,

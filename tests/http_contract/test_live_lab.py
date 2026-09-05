@@ -11,9 +11,10 @@ from services import voice_service
 
 def test_self_contained_smoke_scenario():
     report = run_smoke_scenario()
-    assert report["status"] == "degraded"
+    assert report["status"] == "ok"
     assert all(report["checks"].values())
-    assert report["known_gaps"]["camera_mode_not_transmitted_by_current_firmware"] is True
+    assert report["checks"]["camera_capture_mode_preserved"] is True
+    assert report["known_gaps"] == {}
 
 
 def test_server_push_reaches_virtual_device(monkeypatch):

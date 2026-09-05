@@ -85,7 +85,7 @@ def _audio_response_valid(response: requests.Response) -> tuple[bool, str]:
 class VirtualM5State:
     callback_server_url: str = ""
     camera_enabled: bool = True
-    camera_upload_v2: bool = False
+    camera_upload_v2: bool = True
     fetch_loopback_audio: bool = True
     play_pending: bool = False
     play_active: bool = False

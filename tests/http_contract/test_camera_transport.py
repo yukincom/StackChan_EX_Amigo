@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from flask import Flask, jsonify, request
+import pytest
 
 from tools.stackchan_lab.server_runner import LiveServer
 from tools.stackchan_lab.virtual_m5 import VirtualM5State, create_virtual_m5_app
@@ -63,3 +64,33 @@ def test_partial_body_retries_once_then_succeeds():
     assert [attempt["outcome"] for attempt in attempts] == ["partial_send", "normal"]
     assert [attempt["body_sent"] for attempt in attempts] == [False, True]
     assert state.camera_await is True
+
+
+@pytest.mark.parametrize("new_firmware", [True, False])
+@pytest.mark.parametrize("mode", ["archive", "transient"])
+def test_new_and_legacy_camera_upload_wire_format(new_firmware, mode):
+    received = []
+    app = Flask("capture-mode-callback")
+
+    @app.post("/vision/upload")
+    def upload():
+        received.append((dict(request.args), request.get_data()))
+        return jsonify(success=True)
+
+    with LiveServer(app) as callback:
+        state = VirtualM5State(callback_server_url=callback.base_url, camera_upload_v2=new_firmware)
+        client = create_virtual_m5_app(state).test_client()
+        assert client.post("/camera/trigger", json={
+            "requester": "user", "context": "fixture", "mode": mode,
+        }).status_code == 200
+        assert client.post("/__lab__/advance").status_code == 200
+
+    assert len(received) == 1
+    params, body = received[0]
+    assert params["r"] == "user"
+    assert params["t"] == "fixture"
+    assert len(body) == 838
+    if new_firmware:
+        assert params["mode"] == mode
+    else:
+        assert "mode" not in params
