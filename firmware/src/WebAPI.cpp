@@ -6,6 +6,7 @@
 #include "llm/ChatGPT/ChatGPT.h"
 #include "llm/ChatGPT/FunctionCall.h"
 #include "Robot.h"
+#include "share/IdleExpression.h"
 #include "driver/PlayMP3.h"
 #if defined(ENABLE_CAMERA)
 #include "driver/Camera.h"
@@ -40,6 +41,7 @@ static bool is_camera_trigger_awaiting_now() {
   if ((int32_t)(millis() - s_camera_trigger_await_deadline) >= 0) {
     s_camera_trigger_awaiting = false;
     s_camera_trigger_await_deadline = 0;
+    finishExpressionActivity(Expression::Doubt);
     return false;
   }
   return true;
@@ -206,12 +208,12 @@ void handle_face() {
   Serial.println(expression);
   switch (expression.toInt())
   {
-    case 0: avatar.setExpression(Expression::Neutral); break;
-    case 1: avatar.setExpression(Expression::Happy); break;
-    case 2: avatar.setExpression(Expression::Sleepy); break;
-    case 3: avatar.setExpression(Expression::Doubt); break;
-    case 4: avatar.setExpression(Expression::Sad); break;
-    case 5: avatar.setExpression(Expression::Angry); break;  
+    case 0: setExplicitExpression(Expression::Neutral); break;
+    case 1: setExplicitExpression(Expression::Happy); break;
+    case 2: setExplicitExpression(Expression::Sleepy); break;
+    case 3: setExplicitExpression(Expression::Doubt); break;
+    case 4: setExplicitExpression(Expression::Sad); break;
+    case 5: setExplicitExpression(Expression::Angry); break;
   } 
   server.send(200, "text/plain", String("OK"));
 }
@@ -415,7 +417,7 @@ void process_camera_trigger_request(void)
   if (announce_endpoint != "") {
     playLocalPrompt(announce_endpoint.c_str());
   }
-  avatar.setExpression(Expression::Doubt);
+  setActivityExpression(Expression::Doubt);
   bool result = camera_capture_post_upload(
     base_url,
     requester.c_str(),
@@ -429,7 +431,7 @@ void process_camera_trigger_request(void)
   if (result) {
     mark_camera_trigger_awaiting();
   } else {
-    avatar.setExpression(Expression::Neutral);
+    setIdleExpression();
     clear_camera_trigger_awaiting();
   }
   Serial.printf("[CAMERA_TRIGGER] result=%s\n", result ? "ok" : "ng");

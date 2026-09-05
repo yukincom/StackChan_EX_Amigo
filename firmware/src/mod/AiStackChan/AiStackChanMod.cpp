@@ -6,6 +6,7 @@
 #include "AiStackChanMod.h"
 #include <Avatar.h>
 #include "Robot.h"
+#include "share/IdleExpression.h"
 #include "llm/ChatGPT/ChatGPT.h"
 #include "llm/ChatGPT/FunctionCall.h"
 #include "driver/PlayMP3.h"
@@ -46,19 +47,19 @@ static bool is_stt_backend_error() {
 
 static void restore_post_chat_expression() {
   if (is_camera_trigger_active()) {
-    avatar.setExpression(Expression::Doubt);
+    setActivityExpression(Expression::Doubt);
   } else {
-    avatar.setExpression(Expression::Neutral);
+    setIdleExpression();
   }
 }
 
 static void report_batt_level(){
   char buff[100];
   if (g_cameraBusy) {
-    avatar.setExpression(Expression::Doubt);
+    setActivityExpression(Expression::Doubt);
     robot->speech(String("いまカメラを使っているので、あとで電池を確認するね。"));
     delay(1000);
-    avatar.setExpression(Expression::Neutral);
+    setIdleExpression();
     return;
   }
   int level = M5.Power.getBatteryLevel();
@@ -69,13 +70,13 @@ static void report_batt_level(){
     sprintf(buff,"充電中、バッテリーのレベルは%d％です。",level);
   else
     sprintf(buff,"バッテリーのレベルは%d％です。",level);
-  avatar.setExpression(Expression::Happy);
+  setActivityExpression(Expression::Happy);
 #if defined(ENABLE_WAKEWORD)
   mode = 0; 
 #endif
   robot->speech(String(buff));
   delay(1000);
-  avatar.setExpression(Expression::Neutral);
+  setIdleExpression();
 }
 
 
@@ -85,7 +86,7 @@ static void STT_ChatGPT(const char *base64_buf = NULL) {
   servo_home = true;
 #endif
 
-  avatar.setExpression(Expression::Happy);
+  setActivityExpression(Expression::Happy);
 
   String ret = robot->listen();
 
@@ -103,16 +104,16 @@ static void STT_ChatGPT(const char *base64_buf = NULL) {
   } else {
     Serial.println("音声認識失敗");
     if (is_stt_backend_error()) {
-      avatar.setExpression(Expression::Confusion);
+      setActivityExpression(Expression::Confusion);
       playLocalPrompt("server_error");
     } else {
-      avatar.setExpression(Expression::Sad);
+      setActivityExpression(Expression::Sad);
       avatar.setSpeechText("聞き取れませんでした");
       playLocalPrompt("listening_error");
     }
     delay(2000);
     avatar.setSpeechText("");
-    avatar.setExpression(Expression::Neutral);
+    setIdleExpression();
     servo_home = true;
   } 
 }
@@ -180,6 +181,7 @@ AiStackChanMod::AiStackChanMod(bool _isOffline)
 
 void AiStackChanMod::init(void)
 {
+  setIdleExpression();
   avatar.setSpeechText("AI Stack-chan");
   startupSpeechClearAtMs = millis() + 2000;
 #if defined(ENABLE_CAMERA)
@@ -404,7 +406,7 @@ bool AiStackChanMod::handle_text_wakeword(void)
 #ifdef USE_SERVO
     servo_home = true;
 #endif
-    avatar.setExpression(Expression::Happy);
+    setActivityExpression(Expression::Happy);
     STT_ChatGPT();
     return true;
   }
@@ -412,7 +414,7 @@ bool AiStackChanMod::handle_text_wakeword(void)
 #ifdef USE_SERVO
   servo_home = true;
 #endif
-  avatar.setExpression(Expression::Happy);
+  setActivityExpression(Expression::Happy);
   robot->chat(query);
   avatar.setSpeechText("");
   restore_post_chat_expression();
@@ -462,6 +464,7 @@ void AiStackChanMod::doubleTapped(float ax, float ay, float az)
 
 void AiStackChanMod::idle(void)
 {
+  refreshIdleExpression(is_camera_trigger_active());
   if (startupSpeechClearAtMs != 0 && millis() >= startupSpeechClearAtMs) {
     avatar.setSpeechText("");
     startupSpeechClearAtMs = 0;
@@ -496,12 +499,12 @@ void AiStackChanMod::idle(void)
     else{
 #if defined(ENABLE_FACE_DETECT)
       if(isFaceDetected){
-        avatar.setExpression(Expression::Happy);
+        setActivityExpression(Expression::Happy);
         //delay(2000);
         //avatar.setExpression(Expression::Neutral);
       }
       else{
-        avatar.setExpression(Expression::Neutral);
+        setIdleExpression();
       }
 #endif
     }

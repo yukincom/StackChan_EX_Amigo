@@ -13,6 +13,7 @@
 #include "AudioOutputM5Speaker.h"
 #include "PlayMP3.h"
 #include "Avatar.h"
+#include "share/IdleExpression.h"
 
 using namespace m5avatar;
 
@@ -112,12 +113,12 @@ bool playMP3SPIFFS(const char *filename)
         Serial.println("failed to allocate mp3 source buffer");
         return false;
       }
-      avatar.setExpression(Expression::Happy);
+      setActivityExpression(Expression::Happy);
       servo_home = false;
 
       result = playMP3(buff);
       
-      avatar.setExpression(Expression::Neutral);
+      setIdleExpression();
       servo_home = true;
 
       delete buff;
@@ -160,13 +161,17 @@ bool playMP3SD(const char *filename, bool useTalkingExpression)
       }
       m5avatar::Expression prevExpression = avatar.getExpression();
       if (useTalkingExpression) {
-        avatar.setExpression(Expression::Happy);
+        setActivityExpression(Expression::Happy);
       }
       servo_home = false;
 
       result = playMP3(buff);
       
-      avatar.setExpression(useTalkingExpression ? Expression::Neutral : prevExpression);
+      if (useTalkingExpression) {
+        setIdleExpression();
+      } else {
+        avatar.setExpression(prevExpression);
+      }
       servo_home = true;
 
       delete buff;

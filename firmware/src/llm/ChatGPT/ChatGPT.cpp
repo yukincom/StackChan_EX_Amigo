@@ -12,6 +12,7 @@
 #include "FunctionCall.h"
 #include "MCPClient.h"
 #include "Robot.h"
+#include "share/IdleExpression.h"
 #include "share/HttpUtil.h"
 #include "WebAPI.h"
 
@@ -380,7 +381,7 @@ String ChatGPT::execChatGpt(String json_string, String& calledFunc, const String
   String response = "";
   const uint32_t thinkingStartedAt = millis();
   bool keepThinkingUntilReturn = true;
-  avatar.setExpression(Expression::Doubt);
+  setActivityExpression(Expression::Doubt);
   String chat_url = param.llm_conf.base_url != ""
     ? join_url(param.llm_conf.base_url, "/v1/chat/completions")
     : String("https://api.openai.com/v1/chat/completions");
@@ -394,12 +395,12 @@ String ChatGPT::execChatGpt(String json_string, String& calledFunc, const String
       Serial.print(F("deserializeJson() failed: "));
       Serial.println(error.f_str());
       keepThinkingUntilReturn = false;
-      avatar.setExpression(Expression::Confusion);
+      setActivityExpression(Expression::Confusion);
       response = "エラーです";
       playLocalPrompt("error");
       markSkipNextTtsSpeech();
       delay(1000);
-      avatar.setExpression(Expression::Neutral);
+      setIdleExpression();
     }else{
       const char* data = doc["choices"][0]["message"]["content"];
       
@@ -435,12 +436,12 @@ String ChatGPT::execChatGpt(String json_string, String& calledFunc, const String
     }
   } else {
     keepThinkingUntilReturn = false;
-    avatar.setExpression(Expression::Confusion);
+    setActivityExpression(Expression::Confusion);
     response = "あれ？サーバーにつながらない！";
     playLocalPrompt("server_error");
     markSkipNextTtsSpeech();
     delay(1000);
-    avatar.setExpression(Expression::Neutral);
+    setIdleExpression();
   }
   if (keepThinkingUntilReturn) {
     const uint32_t elapsed = millis() - thinkingStartedAt;

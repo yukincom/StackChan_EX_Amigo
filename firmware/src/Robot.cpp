@@ -4,6 +4,7 @@
 #include "llm/LLMBase.h"
 #include "llm/ChatGPT/ChatGPT.h"
 #include "Avatar.h"
+#include "share/IdleExpression.h"
 
 using namespace m5avatar;
 
@@ -114,11 +115,11 @@ void Robot::speech(String text)
 {
   if(text != ""){
     servo_home = false;
-    avatar.setExpression(Expression::Neutral);
+    setActivityExpression(Expression::Neutral);
 
     tts->stream(text);
 
-    avatar.setExpression(Expression::Neutral);
+    setIdleExpression();
     servo_home = true;
   }
 }
