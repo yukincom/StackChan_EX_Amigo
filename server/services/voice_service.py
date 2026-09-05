@@ -277,6 +277,8 @@ def push_to_m5stack(
             # Async dispatch must not impose an unconditional startup wait.
             # Keep delay_ms=0 in new records; the reader still accepts legacy
             # persisted delays without rewriting already-accepted operations.
+            # 復旧用: 固定1.5秒待ちが必要なら次行を戻し、delay_ms=0の行と置き換える。
+            # {"voice_url": voice_url, "delay_ms": 1500 if fire_and_forget else 0},
             {"voice_url": voice_url, "delay_ms": 0},
             ensure_ascii=False,
             separators=(",", ":"),
