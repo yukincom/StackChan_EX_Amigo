@@ -234,7 +234,7 @@ String ChatGPT::https_post_json(const char* url, const char* json_string, const 
     httpCode = https.POST((uint8_t *)json_string, strlen(json_string));
     if (httpCode > 0) {
       Serial.printf("[HTTP] POST... code: %d\n", httpCode);
-      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
+      if (httpCode >= 200 && httpCode < 300) {
         payload = https.getString();
         Serial.println("//////////////");
         Serial.println(payload);
@@ -260,7 +260,7 @@ String ChatGPT::https_post_json(const char* url, const char* json_string, const 
     httpCode = https.POST((uint8_t *)json_string, strlen(json_string));
     if (httpCode > 0) {
       Serial.printf("[HTTP] POST... code: %d\n", httpCode);
-      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
+      if (httpCode >= 200 && httpCode < 300) {
         payload = https.getString();
         Serial.println("//////////////");
         Serial.println(payload);
