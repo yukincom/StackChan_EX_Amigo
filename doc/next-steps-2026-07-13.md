@@ -1,5 +1,7 @@
 # 次にやるべきこと（2026-07-13 時点）
 
+2026-09-05追記：最新の追加要件と今回の対象外項目は[firmware改修キャンペーン](firmware-campaign-2026-09-05.md)を参照。以下は7月時点の記録。
+
 **方針**: 日常開発・実機確認は **yuno-chan-api**（GitHub: `dev_StackChan_EX_Amig`）。  
 **StacChan_EX_Amigo** は整理用・firmware 付き。ハード変更は溜めてフラッシュ回数を減らす。
 
