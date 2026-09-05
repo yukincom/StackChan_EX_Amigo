@@ -404,7 +404,9 @@ AI_ENV_GROUPS = [
                  "mlx:MLX"
              ]},                
             {"key": "AI_SUMMARY_MODEL", "label": "要約モデル",              "type": "text"},        
-            {"key": "AI_SEARCH_MODEL",  "label": "検索モデル（Gemini固定）", "type": "text"},
+            {"key": "AI_SEARCH_PROVIDER", "label": "検索サービス（Firecrawlの回答生成は会話モデル）", "type": "select", "default": "gemini",
+             "options": ["gemini:Gemini / Google検索", "firecrawl:Firecrawl"]},
+            {"key": "AI_SEARCH_MODEL",  "label": "検索モデル（Gemini選択時のみ）", "type": "text"},
             {"key": "VLM_MODEL",        "label": "Vision モデル（MLX VLM）", "type": "text"},
         ]
     },
@@ -413,7 +415,7 @@ AI_ENV_GROUPS = [
         "items": [
             {"key": "AI_MAX_OUTPUT_TOKENS",   "label": "最大出力トークン数",                        "type": "number"},
             {"key": "AI_RECENT_TURNS",        "label": "通常会話の記憶ターン数（推奨：10未満）",      "type": "number"},
-            {"key": "AI_SEARCH_RECENT_TURNS", "label": "Google検索へ送る総ターン数（1=今回の入力だけ）", "type": "number", "default": "1"},
+            {"key": "AI_SEARCH_RECENT_TURNS", "label": "Gemini検索の総ターン数（Firecrawlへの検索語は今回の入力のみ）", "type": "number", "default": "1"},
             {"key": "AI_CHAT_TEMPERATURE",    "label": "会話 Temperature（豊かさ・デフォルト 0.8）", "type": "number"},
             {"key": "AI_SUMMARY_TEMPERATURE", "label": "要約 Temperature（正確さ・デフォルト 0.3）", "type": "number"},
             {"key": "AI_SEARCH_TEMPERATURE",  "label": "検索 Temperature（正確さ・デフォルト 0.3）", "type": "number"},
@@ -422,7 +424,8 @@ AI_ENV_GROUPS = [
     {
         "group": "🔑 APIキー",
         "items": [
-            {"key": "GEMINI_API_KEY",  "label": "Gemini API キー（検索機能のため常に必須）",       "type": "password"},
+            {"key": "GEMINI_API_KEY",  "label": "Gemini API キー（Gemini利用時）", "type": "password"},
+            {"key": "FIRECRAWL_API_KEY", "label": "Firecrawl API キー（検索ごとにクレジット消費）", "type": "password"},
             {"key": "",                      "label": "",                      "type": "empty"},
             {"key": "OPENAI_BASE_URL", "label": "OpenAI互換 Base URL（AI_PROVIDER=openai の時）", "type": "text"},
             {"key": "OPENAI_API_KEY",  "label": "OpenAI互換 API キー（AI_PROVIDER=openai の時）", "type": "password"},        ]
@@ -569,6 +572,14 @@ def get_ai_env():
 def save_ai_env():
     try:
         updates = _sanitize_env_updates(request.get_json(force=True), AI_ENV_GROUPS)
+        if "AI_SEARCH_PROVIDER" in updates:
+            provider = updates["AI_SEARCH_PROVIDER"].strip().lower()
+            if provider not in ("gemini", "firecrawl"):
+                return jsonify({"ok": False, "error": "検索サービスの選択が不正です"}), 400
+            updates["AI_SEARCH_PROVIDER"] = provider
+        key = updates.get("FIRECRAWL_API_KEY", "")
+        if any(c.isspace() for c in key):
+            return jsonify({"ok": False, "error": "Firecrawl APIキーに空白や改行は使えません"}), 400
         _write_dotenv(_ENV_DIR / ".env.local", updates)
         return jsonify({"ok": True})
     except Exception as e:

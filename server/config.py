@@ -103,7 +103,8 @@ class Config:
     AI_SUMMARY_PROVIDER = os.getenv("AI_SUMMARY_PROVIDER", "MLX").strip().lower()
     AI_SUMMARY_MODEL = os.getenv("AI_SUMMARY_MODEL", "mlx-community/Qwen3.6-35B-A3B-4bit")
 
-    AI_SEARCH_MODEL  = os.getenv("AI_SEARCH_MODEL",  "gemini-2.5-flash")  # 検索（Gemini固定）
+    AI_SEARCH_PROVIDER = os.getenv("AI_SEARCH_PROVIDER", "gemini").strip().lower()
+    AI_SEARCH_MODEL  = os.getenv("AI_SEARCH_MODEL",  "gemini-2.5-flash")  # Gemini検索用
 
     SEARCH_KEYWORDS = os.getenv("SEARCH_KEYWORDS", "調べて,しらべて,調査して,ちょうさして,サーチして,さーちして,ぐぐって,ググって").split(",")
     SPEECH_ALLOW_SHORT = os.getenv("SPEECH_ALLOW_SHORT", "はーい,いや,やだ,だめ,ねえ").split(",")
