@@ -4,6 +4,20 @@
 
 公開版・家庭用の共通 `services/conversation_text_lab.py` を使い、発話テキストから場面を推定して既存の参加reducerへ渡す。`app.py`、設定ファイル、通常の記憶、スケジューラ、STT、TTS、本体APIは読み込まない。実運用の会話経路には未接続。
 
+入口は互換用の薄いモジュールで、実装は `services/conversation_lab/` に分割している。
+
+| ファイル | 責務 |
+| --- | --- |
+| `context.py` | 登録名・発話型、一時文脈の保持 |
+| `reader.py` | 元の場面判定、ローカル通信、明示人格の簡易応答 |
+| `structured_reader.py` | 呼名の用途とreply-toを分ける実験候補 |
+| `cases.py` | ケース形式と元会話単位の分割検証 |
+| `evaluation.py` | 記録文脈リプレイ、採点、制御比較 |
+| `report.py` | 私的JSON/HTMLレポート |
+| `cli.py` | 引数検証と実行の組み立て |
+
+本番参加状態のreducerは引き続き別ファイル。テキストラボの役割分割に伴うHTTP/本体契約の変更はない。
+
 - ファイル再生: 1発話ずつ「待つ / 返答する / 静聴を告げる / 聞き始める」と参加状態を比較し、JSONと閲覧用HTMLを作る。
 - 自由入力: テキストと `/touch`、`/gap`、`/off`、`/on` を入力する。終了は `/quit`。入力をファイルに保存しない。
 - これは **応答タイミング・参加判断の評価**。通常は返答本文を生成しない。任意の比較デモだけでQwenの返答文を生成できるが、返答内容の品質、音響上の無音/割込み時間、複数人の話者識別、実機の再生停止を検証したことにはならない。
@@ -41,6 +55,12 @@
 .venv/bin/python tools/conversation_lab.py --interactive --backend local --model ALREADY_RUNNING_MODEL --name スタックちゃん
 ```
 
+実験候補は `--backend local --reader structured` で明示選択する。省略時は従来の `baseline` のまま。
+モデル・保持幅・入力を揃えて比較する。モデル一覧に載っているだけでは稼働中とは限らないため、
+起動プロセスでモデルを確認し、比較のためにサーバーを勝手に切り替えない。
+
+構造化候補の研究根拠と限界は [会話構造の実験設計](conversation-structure-experiment-2026-09-06.md) を参照。
+
 返答文も比較する場合は、localの1ケース・保持幅1つを指定して `--demo-turn u04 --demo-turn u16` のように対象IDを追加する。ケースに明示した名前と人格を使う**簡易生成器**であり、本番の `ai_handler.get_ai_response` や `process_chat` は通らない。同じQwenが生成した文を、参加判断なし条件では表示し、参加判断あり条件では `reply` のときだけ表示する。生成文の違いを混ぜず「返すかどうか」の効果を見せる制御比較であり、実運用の過去出力・本番パイプラインの改善結果と呼ばない。
 
 ### キャラクター名の整合性
@@ -53,11 +73,14 @@
 
 家庭用実験は `--server-root /path/to/yuno-chan-api-conversation` を同じランチャーに追加する。家庭用実運用フォルダは指定しない。レポートがすでに存在する場合や保持幅が不正な場合は、推論前に止まる。
 
-再生のexit 0は採点対象がすべて注釈に一致、exit 1は不一致/判定エラーを含む。判定が失敗したときの「待つ」は正解の沈黙として数えない。HTMLでは行の期待actionとmodeを両方比較し、状態だけの不一致も失敗表示する。
+再生のexit 0は参加動作の採点対象がすべて注釈に一致、exit 1は不一致/判定エラーを含む。判定が失敗したときの「待つ」は正解の沈黙として数えない。HTMLでは行の期待actionとmodeを両方比較し、状態だけの不一致も失敗表示する。場面/構造の各項目は別採点であり、exit 0だけで意味理解が正しいとは判定しない。
+
+誤割込み率の母数は、カテゴリ名によらず期待actionがwaitの採点済みspeech全て。新しい引用カテゴリ等を集計から落とさない。
+レポートは選択したreader・プロンプトhash・ラボ全モジュールのhash・reducerのhashを記録する。
 
 JSONは `schema_version: 1` と `cases` 配列。各caseには `id`, `split`, `source_group`, `assistant_names`, `turns` が必要。発話は `id`, `role: human|assistant|unknown`, `text`。操作は `kind: face_touch|turn_boundary|mic_off|mic_on`。任意の `playback_active` は合成の再生状態として扱う。
 
-`gold` は採点専用。`action`、任意の `mode`、カテゴリ、oracle用の `scene` を持つ。必要なら `stop_playback` と `allow_conversation_history` も採点する。正解宛先・話者の推測・出典・未来の発話はlocal判定器へ渡さない。原ログのassistant発話は過去文脈として渡すため、これは記録文脈リプレイでありモデル自身の応答による自由会話評価ではない。
+`gold` は採点専用。`action`、任意の `mode`、カテゴリ、oracle用の `scene` を持つ。必要なら `stop_playback` と `allow_conversation_history` も採点する。任意の `structure` はname_useとreply_to_idを別採点する。正解宛先・話者の推測・出典・未来の発話はlocal判定器へ渡さない。原ログのassistant発話は過去文脈として渡すため、これは記録文脈リプレイでありモデル自身の応答による自由会話評価ではない。
 
 ## 私的データとOSS
 

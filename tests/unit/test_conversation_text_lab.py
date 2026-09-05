@@ -71,11 +71,19 @@ def test_reader_has_no_gold_future_source_or_inferred_speaker():
 
 def test_no_ordinary_memory_device_or_app_imports():
     import ast
-    import inspect
-    from services import conversation_text_lab
-    tree = ast.parse(inspect.getsource(conversation_text_lab))
-    names = [n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
-    assert not any(n in {"config", "app", "memory_manager", "voice_service", "chat_service"} for n in names)
+    from pathlib import Path
+    from services import conversation_text_lab, conversation_lab
+    paths = [Path(conversation_text_lab.__file__), *Path(conversation_lab.__file__).parent.glob("*.py")]
+    forbidden = {"config", "app", "memory_manager", "voice_service", "chat_service"}
+    for path in paths:
+        tree = ast.parse(path.read_text())
+        names = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                names.append(node.module or "")
+            elif isinstance(node, ast.Import):
+                names.extend(alias.name for alias in node.names)
+        assert not any(set(name.split(".")) & forbidden for name in names), path.name
 
 
 def test_context_caps_keep_whole_recent_utterances_and_current():
@@ -206,7 +214,7 @@ def test_playback_flag_and_side_effect_expectations_are_exercised():
 
 @pytest.mark.parametrize("collision,widths", [(True, "16"), (False, "16,-1")])
 def test_cli_validates_all_outputs_and_widths_before_model(tmp_path, monkeypatch, collision, widths):
-    from services import conversation_text_lab as lab
+    from services.conversation_lab import cli as lab
     target = tmp_path / "report"
     target.mkdir()
     if collision:

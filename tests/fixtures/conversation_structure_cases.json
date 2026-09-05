@@ -1,0 +1,799 @@
+{
+  "schema_version": 1,
+  "annotation": "Invented text-only contrast probes, predeclared before candidate inference. Not a population estimate or observed speaker identities. Final split/merged decisions are compared; intra-buffer stopping is not measured.",
+  "cases": [
+    {
+      "id": "structure-mention-split",
+      "split": "dev",
+      "source_group": "mention-versus-call",
+      "contrast_group": "mention",
+      "segmentation": "split",
+      "initial_mode": "quiet",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "ねえ、ロボって丸い顔だよね。",
+          "gold": {
+            "action": "wait",
+            "mode": "quiet",
+            "category": "name_mention",
+            "scene": {
+              "addressee": "unknown",
+              "human_exchange": false,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "mention",
+              "reply_to_id": null
+            }
+          }
+        },
+        {
+          "id": "u2",
+          "role": "human",
+          "text": "うん、かわいい。",
+          "gold": {
+            "action": "wait",
+            "mode": "quiet",
+            "category": "name_mention",
+            "scene": {
+              "addressee": "human",
+              "human_exchange": true,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": "u1"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-mention-merged",
+      "split": "dev",
+      "source_group": "mention-versus-call",
+      "contrast_group": "mention",
+      "segmentation": "merged",
+      "initial_mode": "quiet",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "ねえ、ロボって丸い顔だよね。うん、かわいい。",
+          "gold": {
+            "action": "wait",
+            "mode": "quiet",
+            "category": "name_mention",
+            "scene": {
+              "addressee": "human",
+              "human_exchange": true,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "mention",
+              "reply_to_id": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-call-split",
+      "split": "dev",
+      "source_group": "mention-versus-call",
+      "contrast_group": "call",
+      "segmentation": "split",
+      "initial_mode": "quiet",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "ねえ、ロボ。",
+          "gold": {
+            "action": "reply",
+            "mode": "active",
+            "category": "direct_call",
+            "scene": {
+              "addressee": "assistant",
+              "human_exchange": false,
+              "called_assistant": true,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "direct_call",
+              "reply_to_id": null
+            }
+          }
+        },
+        {
+          "id": "u2",
+          "role": "human",
+          "text": "丸い顔を描くコツを教えて。",
+          "gold": {
+            "action": "reply",
+            "mode": "active",
+            "category": "assistant_continuation",
+            "scene": {
+              "addressee": "assistant",
+              "human_exchange": false,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": "u1"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-call-merged",
+      "split": "dev",
+      "source_group": "mention-versus-call",
+      "contrast_group": "call",
+      "segmentation": "merged",
+      "initial_mode": "quiet",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "ねえ、ロボ。丸い顔を描くコツを教えて。",
+          "gold": {
+            "action": "reply",
+            "mode": "active",
+            "category": "direct_call",
+            "scene": {
+              "addressee": "assistant",
+              "human_exchange": false,
+              "called_assistant": true,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "direct_call",
+              "reply_to_id": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-quote-split",
+      "split": "dev",
+      "source_group": "quote-versus-call",
+      "contrast_group": "quote",
+      "segmentation": "split",
+      "initial_mode": "quiet",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "昨日「ロボ、色を教えて」って言ったんだ。",
+          "gold": {
+            "action": "wait",
+            "mode": "quiet",
+            "category": "quoted_call",
+            "scene": {
+              "addressee": "unknown",
+              "human_exchange": false,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "quoted_call",
+              "reply_to_id": null
+            }
+          }
+        },
+        {
+          "id": "u2",
+          "role": "human",
+          "text": "そうなんだね。",
+          "gold": {
+            "action": "wait",
+            "mode": "quiet",
+            "category": "quoted_call",
+            "scene": {
+              "addressee": "human",
+              "human_exchange": true,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": "u1"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-quote-merged",
+      "split": "dev",
+      "source_group": "quote-versus-call",
+      "contrast_group": "quote",
+      "segmentation": "merged",
+      "initial_mode": "quiet",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "昨日「ロボ、色を教えて」って言ったんだ。そうなんだね。",
+          "gold": {
+            "action": "wait",
+            "mode": "quiet",
+            "category": "quoted_call",
+            "scene": {
+              "addressee": "human",
+              "human_exchange": true,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "quoted_call",
+              "reply_to_id": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-actual-split",
+      "split": "dev",
+      "source_group": "quote-versus-call",
+      "contrast_group": "actual",
+      "segmentation": "split",
+      "initial_mode": "quiet",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "ロボ、色を教えて。",
+          "gold": {
+            "action": "reply",
+            "mode": "active",
+            "category": "direct_call",
+            "scene": {
+              "addressee": "assistant",
+              "human_exchange": false,
+              "called_assistant": true,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "direct_call",
+              "reply_to_id": null
+            }
+          }
+        },
+        {
+          "id": "u2",
+          "role": "human",
+          "text": "青と緑の違いも教えて。",
+          "gold": {
+            "action": "reply",
+            "mode": "active",
+            "category": "assistant_continuation",
+            "scene": {
+              "addressee": "assistant",
+              "human_exchange": false,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": "u1"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-actual-merged",
+      "split": "dev",
+      "source_group": "quote-versus-call",
+      "contrast_group": "actual",
+      "segmentation": "merged",
+      "initial_mode": "quiet",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "ロボ、色を教えて。青と緑の違いも教えて。",
+          "gold": {
+            "action": "reply",
+            "mode": "active",
+            "category": "direct_call",
+            "scene": {
+              "addressee": "assistant",
+              "human_exchange": false,
+              "called_assistant": true,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "direct_call",
+              "reply_to_id": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-human_answer-split",
+      "split": "holdout",
+      "source_group": "answer-ownership",
+      "contrast_group": "human_answer",
+      "segmentation": "split",
+      "initial_mode": "quiet",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "これは何色？",
+          "gold": {
+            "action": "wait",
+            "mode": "quiet",
+            "category": "human_exchange",
+            "scene": {
+              "addressee": "unknown",
+              "human_exchange": false,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": null
+            }
+          }
+        },
+        {
+          "id": "u2",
+          "role": "human",
+          "text": "青だよ。",
+          "gold": {
+            "action": "wait",
+            "mode": "quiet",
+            "category": "human_exchange",
+            "scene": {
+              "addressee": "human",
+              "human_exchange": true,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": "u1"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-human_answer-merged",
+      "split": "holdout",
+      "source_group": "answer-ownership",
+      "contrast_group": "human_answer",
+      "segmentation": "merged",
+      "initial_mode": "quiet",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "これは何色？青だよ。",
+          "gold": {
+            "action": "wait",
+            "mode": "quiet",
+            "category": "human_exchange",
+            "scene": {
+              "addressee": "human",
+              "human_exchange": true,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-await_assistant-split",
+      "split": "holdout",
+      "source_group": "answer-ownership",
+      "contrast_group": "await_assistant",
+      "segmentation": "split",
+      "initial_mode": "quiet",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "ロボ、これは何色？",
+          "gold": {
+            "action": "reply",
+            "mode": "active",
+            "category": "direct_call",
+            "scene": {
+              "addressee": "assistant",
+              "human_exchange": false,
+              "called_assistant": true,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "direct_call",
+              "reply_to_id": null
+            }
+          }
+        },
+        {
+          "id": "u2",
+          "role": "human",
+          "text": "青なのかな、教えて。",
+          "gold": {
+            "action": "reply",
+            "mode": "active",
+            "category": "assistant_continuation",
+            "scene": {
+              "addressee": "assistant",
+              "human_exchange": false,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": "u1"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-await_assistant-merged",
+      "split": "holdout",
+      "source_group": "answer-ownership",
+      "contrast_group": "await_assistant",
+      "segmentation": "merged",
+      "initial_mode": "quiet",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "ロボ、これは何色？青なのかな、教えて。",
+          "gold": {
+            "action": "reply",
+            "mode": "active",
+            "category": "direct_call",
+            "scene": {
+              "addressee": "assistant",
+              "human_exchange": false,
+              "called_assistant": true,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "direct_call",
+              "reply_to_id": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-human_then_ai-split",
+      "split": "holdout",
+      "source_group": "target-order",
+      "contrast_group": "human_then_ai",
+      "segmentation": "split",
+      "initial_mode": "active",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "そこの箱を取って。はい、どうぞ。",
+          "gold": {
+            "action": "wait",
+            "mode": "quiet",
+            "category": "human_exchange",
+            "scene": {
+              "addressee": "human",
+              "human_exchange": true,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": null
+            }
+          }
+        },
+        {
+          "id": "u2",
+          "role": "human",
+          "text": "ロボ、この箱で何を作ろう？",
+          "gold": {
+            "action": "reply",
+            "mode": "active",
+            "category": "direct_call",
+            "scene": {
+              "addressee": "assistant",
+              "human_exchange": false,
+              "called_assistant": true,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "direct_call",
+              "reply_to_id": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-human_then_ai-merged",
+      "split": "holdout",
+      "source_group": "target-order",
+      "contrast_group": "human_then_ai",
+      "segmentation": "merged",
+      "initial_mode": "active",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "そこの箱を取って。はい、どうぞ。ロボ、この箱で何を作ろう？",
+          "gold": {
+            "action": "reply",
+            "mode": "active",
+            "category": "direct_call",
+            "scene": {
+              "addressee": "assistant",
+              "human_exchange": false,
+              "called_assistant": true,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "direct_call",
+              "reply_to_id": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-ai_then_human-split",
+      "split": "holdout",
+      "source_group": "target-order",
+      "contrast_group": "ai_then_human",
+      "segmentation": "split",
+      "initial_mode": "active",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "ロボ、箱で何を作ろう？",
+          "gold": {
+            "action": "reply",
+            "mode": "active",
+            "category": "direct_call",
+            "scene": {
+              "addressee": "assistant",
+              "human_exchange": false,
+              "called_assistant": true,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "direct_call",
+              "reply_to_id": null
+            }
+          }
+        },
+        {
+          "id": "u2",
+          "role": "human",
+          "text": "あ、その箱取って。はい、どうぞ。",
+          "gold": {
+            "action": "wait",
+            "mode": "quiet",
+            "category": "human_exchange",
+            "scene": {
+              "addressee": "human",
+              "human_exchange": true,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-ai_then_human-merged",
+      "split": "holdout",
+      "source_group": "target-order",
+      "contrast_group": "ai_then_human",
+      "segmentation": "merged",
+      "initial_mode": "active",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "assistant_persona": "親切なロボット。一人称はぼく。",
+      "turns": [
+        {
+          "id": "u1",
+          "role": "human",
+          "text": "ロボ、箱で何を作ろう？あ、その箱取って。はい、どうぞ。",
+          "gold": {
+            "action": "wait",
+            "mode": "quiet",
+            "category": "human_exchange",
+            "scene": {
+              "addressee": "human",
+              "human_exchange": true,
+              "called_assistant": false,
+              "reply_to_assistant": false
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-reply-to-assistant",
+      "split": "holdout",
+      "source_group": "reply-target",
+      "contrast_group": "reply-target",
+      "initial_mode": "active",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "turns": [
+        {
+          "id": "q1",
+          "role": "assistant",
+          "text": "どの色にする？"
+        },
+        {
+          "id": "u2",
+          "role": "human",
+          "text": "青がいいな。",
+          "gold": {
+            "action": "reply",
+            "mode": "active",
+            "category": "assistant_question",
+            "scene": {
+              "addressee": "assistant",
+              "called_assistant": false,
+              "reply_to_assistant": true,
+              "human_exchange": false
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": "q1"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "structure-reply-to-human",
+      "split": "holdout",
+      "source_group": "reply-target",
+      "contrast_group": "reply-target",
+      "initial_mode": "active",
+      "assistant_names": [
+        "ロボ"
+      ],
+      "turns": [
+        {
+          "id": "q1",
+          "role": "human",
+          "text": "どの色にする？",
+          "gold": {
+            "action": "wait",
+            "mode": "active",
+            "category": "human_exchange",
+            "scene": {
+              "addressee": "human",
+              "called_assistant": false,
+              "reply_to_assistant": false,
+              "human_exchange": false
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": null
+            }
+          }
+        },
+        {
+          "id": "u2",
+          "role": "human",
+          "text": "青がいいな。",
+          "gold": {
+            "action": "wait",
+            "mode": "quiet",
+            "category": "human_exchange",
+            "scene": {
+              "addressee": "human",
+              "called_assistant": false,
+              "reply_to_assistant": false,
+              "human_exchange": true
+            },
+            "structure": {
+              "name_use": "none",
+              "reply_to_id": "q1"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
