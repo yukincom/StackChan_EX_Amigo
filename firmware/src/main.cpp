@@ -22,6 +22,7 @@
 #include "mod/QRdisplay/QRdisplayMod.h"
 
 #include "driver/PlayMP3.h"   //lipSync
+#include "share/AudioLevel.h"
 #include "driver/TapDetect.h"
 
 #include "SpiRamJsonDocument.h"
@@ -80,22 +81,15 @@ FtpServer ftpSrv;   //set #define FTP_DEBUG in ESP8266FtpServer.h to see ftp ver
 void lipSync(void *args)
 {
   float gazeX, gazeY;
-  int level = 0;
+  stackchan::MouthEnvelope mouth;
   DriveContext *ctx = (DriveContext *)args;
   Avatar *avatar = ctx->getAvatar();
   for (;;)
   {
-    level = robot->tts->getLevel();
-    if(level<100) level = 0;
-    if(level > 15000)
-    {
-      level = 15000;
-    }
-    float open = (float)level/15000.0;
-    avatar->setMouthOpenRatio(open);
+    avatar->setMouthOpenRatio(mouth.update(robot->tts->getLevel()));
     avatar->getGaze(&gazeY, &gazeX);
     avatar->setRotation(gazeX * 5);
-    delay(100);
+    delay(20);
   }
 }
 

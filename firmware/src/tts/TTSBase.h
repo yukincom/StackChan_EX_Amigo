@@ -24,7 +24,7 @@ public:
     TTSBase() {};
     TTSBase(tts_param_t param) : param(param), isOfflineService(false) {};
     virtual void stream(String text) = 0;
-    virtual int getLevel(){ return abs(*out.getBuffer()); };
+    virtual int getLevel(){ return out.getLevel(); };
 
 };
 

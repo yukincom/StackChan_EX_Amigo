@@ -1,6 +1,10 @@
 #ifndef _AUDIO_OUTPUT_M5_SPEAKER_H
 #define _AUDIO_OUTPUT_M5_SPEAKER_H
 #include <AudioOutput.h>
+#include <Arduino.h>
+#include <atomic>
+#include <cstring>
+#include "share/AudioLevel.h"
 
 /// set M5Speaker virtual channel (0-7)
 //static constexpr uint8_t m5spk_virtual_channel = 0;
@@ -14,7 +18,7 @@ class AudioOutputM5Speaker : public AudioOutput
       _virtual_ch = virtual_sound_channel;
     }
     virtual ~AudioOutputM5Speaker(void) {};
-    virtual bool begin(void) override { return true; }
+    virtual bool begin(void) override { _rms_level.store(0); return true; }
     virtual bool ConsumeSample(int16_t sample[2]) override
     {
       if (_tri_buffer_index < tri_buf_size)
@@ -33,7 +37,10 @@ class AudioOutputM5Speaker : public AudioOutput
     {
       if (_tri_buffer_index)
       {
-        _m5sound->playRaw(_tri_buffer[_tri_index], _tri_buffer_index, hertz, true, 1, _virtual_ch);
+        const int level = stackchan::pcmRms(_tri_buffer[_tri_index], _tri_buffer_index);
+        const bool accepted = _m5sound->playRaw(_tri_buffer[_tri_index], _tri_buffer_index, hertz, true, 1, _virtual_ch);
+        _level_at.store(millis());
+        _rms_level.store(accepted ? level : 0);
         _tri_index = _tri_index < 2 ? _tri_index + 1 : 0;
         _tri_buffer_index = 0;
         ++_update_count;
@@ -43,6 +50,7 @@ class AudioOutputM5Speaker : public AudioOutput
     {
       flush();
       _m5sound->stop(_virtual_ch);
+      _rms_level.store(0);
       for (size_t i = 0; i < 3; ++i)
       {
         memset(_tri_buffer[i], 0, tri_buf_size * sizeof(int16_t));
@@ -52,13 +60,21 @@ class AudioOutputM5Speaker : public AudioOutput
     }
 
     const int16_t* getBuffer(void) const { return _tri_buffer[(_tri_index + 2) % 3]; }
+    // Publish a scalar rather than racing the decoder's mutable PCM buffer.
+    // A stalled/failed stream must not leave the mouth open indefinitely.
+    int getLevel(void) const {
+      return static_cast<uint32_t>(millis() - _level_at.load()) > 120
+          ? 0 : _rms_level.load();
+    }
     const uint32_t getUpdateCount(void) const { return _update_count; }
 
   protected:
     m5::Speaker_Class* _m5sound;
     uint8_t _virtual_ch;
     static constexpr size_t tri_buf_size = 640;
-    int16_t _tri_buffer[3][tri_buf_size];
+    int16_t _tri_buffer[3][tri_buf_size] = {};
+    std::atomic<int> _rms_level{0};
+    std::atomic<uint32_t> _level_at{0};
     size_t _tri_buffer_index = 0;
     size_t _tri_index = 0;
     size_t _update_count = 0;
