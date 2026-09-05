@@ -1,4 +1,10 @@
-# LINE Queue relay
+# LINE relay（Renderを通常利用、Queueは任意）
+
+現在の方針はRender継続です。`RENDER_URL`が設定されていれば、Cloudflare Queueの設定が残っていてもRenderだけを60秒間隔でポーリングします。Cloudflareのアカウント作成や移行は不要です。Queueの実装と以下の手順は、将来必要になった場合のために残しています。
+
+Renderに戻す場合は`RENDER_URL`を設定してserverを再起動します。LINE Developers ConsoleのWebhook URLも変更していた場合は、そちらもRenderのWebhook URLへ戻します。Queueの設定やコードを削除する必要はありません。
+
+## 将来Cloudflare Queueを使う場合
 
 LINE通知は、公開Webhookと自宅Macを直接つながず、Cloudflare Queueを間に置くpull方式を使えます。Mac側は従来どおり60秒間隔で取りに行くため、自宅routerのport開放、Tunnel、M5Stack firmwareの変更やフラッシュは不要です。
 
@@ -18,13 +24,14 @@ Mac server -> private spool -> 音声生成 -> M5Stack
 - Queue messageは、復号、ローカルuser照合、private spoolへのfsyncが完了してからACKします。
 - LINEの`webhookEventId`から内容を含まないoperation IDを作り、redeliveryや再起動で同じ通知を二重登録しません。
 - journalとtraceには本文、user ID、token、鍵、URLを保存しません。本文はmode 0600のprivate spoolにだけ置き、完了後に削除します。
-- 旧Render経路は移行中のfallbackです。Queue設定3項目がそろうとQueueを優先します。
+- Render経路を優先します。`RENDER_URL`が空で、Queue設定3項目がそろう場合だけQueueを使います。通信失敗時にもう一方へ自動切替する仕組みではありません。
 
 ## Mac側の設定
 
-`~/env/.env.local`またはConfigUIへ、次の3項目を設定してserverを再起動します。実値はrepositoryへ入れません。
+Queueへの切替を選んだ場合のみ、`~/env/.env.local`またはConfigUIで`RENDER_URL`を空にし、次の3項目を設定してserverを再起動します。実値はrepositoryへ入れません。
 
 ```dotenv
+RENDER_URL=
 LINE_QUEUE_PULL_URL=https://api.cloudflare.com/client/v4/accounts/ACCOUNT_ID/queues/QUEUE_ID/messages/pull
 LINE_QUEUE_API_TOKEN=<set-locally>
 LINE_RELAY_KEY=<set-locally>
@@ -32,7 +39,7 @@ LINE_RELAY_KEY=<set-locally>
 
 Pull URLはCloudflareの`api.cloudflare.com`、32桁のaccount IDとqueue ID、`/messages/pull`の完全一致だけを受け入れます。tokenは使用するaccountに限定し、QueuesのRead/Write（pullとACKに必要）だけを付与します。
 
-設定が不完全または不正ならQueue pollは起動しません。`RENDER_URL`が残っていれば旧経路を使い、両方がなければLINE通知だけを無効にして会話機能は起動します。
+設定が不完全または不正ならQueue pollは起動しません。`RENDER_URL`が残っていればRenderを使い、利用できる経路がなければLINE通知だけを無効にして会話機能は起動します。
 
 ## 実機なし検証
 
@@ -52,11 +59,10 @@ PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
 
 1. 公開側Python testと非公開Worker test/dry-runを通す。
 2. WorkerとQueueを作成し、専用tokenと共通暗号鍵を設定する。
-3. Mac側の3項目を設定して再起動し、Queue poll開始を確認する。
+3. 復旧用にRender URLを手元に控え、Mac側の`RENDER_URL`を空にしてQueueの3項目を設定する。再起動し、Queue poll開始を確認する。
 4. LINE Webhook URLをWorkerへ切り替え、合成でない通知を1件だけ確認する。
-5. 問題がなければ`RENDER_URL`を空にする。
 
-問題があればLINE Webhook URLを旧Renderへ戻し、Mac側の`LINE_QUEUE_*`を一時的に空にすれば旧経路へ戻せます。暗号鍵を変更すると古いQueue messageは復号できないため、通常はQueueが空であることを確認してからWorkerとMacを同時に更新します。
+問題があればLINE Webhook URLをRenderへ戻し、Mac側の`RENDER_URL`を復元してserverを再起動すればRender経路へ戻せます。Queueに残った通知はRenderへ移されないため、未取得通知の有無は切替前に確認します。暗号鍵を変更すると古いQueue messageは復号できないため、通常はQueueが空であることを確認してからWorkerとMacを同時に更新します。
 
 ## 依存とライセンス
 

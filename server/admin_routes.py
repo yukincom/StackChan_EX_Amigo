@@ -336,12 +336,12 @@ ENV_GROUPS = [
     {
         "group": "📱 通信設定 / LINE,Discord（空欄可）",
         "items": [
-            {"key": "LINE_QUEUE_PULL_URL",  "label": "LINE Queue Pull URL", "type": "text"},
-            {"key": "LINE_QUEUE_API_TOKEN", "label": "LINE Queue Token",    "type": "password"},
-            {"key": "LINE_RELAY_KEY",       "label": "LINE Relay暗号鍵",    "type": "password"},
+            {"key": "RENDER_URL",         "label": "Render URL（LINE通知・優先）", "type": "text"},
+            {"key": "LINE_QUEUE_PULL_URL",  "label": "任意：LINE Queue Pull URL（Render空欄時のみ）", "type": "text"},
+            {"key": "LINE_QUEUE_API_TOKEN", "label": "任意：LINE Queue Token",    "type": "password"},
+            {"key": "LINE_RELAY_KEY",       "label": "任意：LINE Relay暗号鍵",    "type": "password"},
             {"key": "DISCORD_BOT_TOKEN",  "label": "Discord Botトークン",  "type": "password"},
             {"key": "DISCORD_CHANNEL_ID", "label": "Discord チャンネルID", "type": "text"},
-            {"key": "RENDER_URL",         "label": "旧Render URL（移行用）", "type": "text"},
         ]
     },
     {

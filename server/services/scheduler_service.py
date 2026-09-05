@@ -101,8 +101,8 @@ def poll_render():
 
 
 def line_delivery_configured() -> bool:
-    """Queueを優先し、移行中だけ旧Render relayを許可する。"""
-    return line_queue_configured() or bool(config.RENDER_URL.strip())
+    """Renderを優先し、未設定の場合だけ任意のQueue relayを使う。"""
+    return bool(config.RENDER_URL.strip()) or line_queue_configured()
 
 
 def scheduled_cleanup():
@@ -123,13 +123,13 @@ def setup_scheduler(notification_enabled=True):
 
     if notification_enabled:
         if has_line_users():
-            if line_queue_configured():
+            if config.RENDER_URL.strip():
+                scheduler.add_job(poll_render, "interval", seconds=config.POLL_INTERVAL)
+                print(f"[SCHEDULER] LINE Renderポーリング開始（{config.POLL_INTERVAL}秒）")
+            elif line_queue_configured():
                 ensure_line_notification_worker()
                 scheduler.add_job(poll_line_queue, "interval", seconds=config.POLL_INTERVAL)
                 print(f"[SCHEDULER] LINE Queueポーリング開始（{config.POLL_INTERVAL}秒）")
-            elif config.RENDER_URL.strip():
-                scheduler.add_job(poll_render, "interval", seconds=config.POLL_INTERVAL)
-                print("[SCHEDULER] 旧LINE Renderポーリング開始")
             else:
                 print("[SCHEDULER] LINE relay未設定のため通知を開始しません")
 

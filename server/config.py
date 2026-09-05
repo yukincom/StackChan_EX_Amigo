@@ -162,13 +162,13 @@ class Config:
     # 音声の最小バイト数（マジックナンバー）
     SPEECH_MIN_BYTES = _int_env("SPEECH_MIN_BYTES", 10000)
 
-    # LINE relay settings. Queue が設定済みなら Render より優先する。
+    # LINE relay settings. Render を優先し、Queue は将来の切替用に残す。
     POLL_INTERVAL = 60
+    RENDER_URL = os.getenv("RENDER_URL", "")
+    # RENDER_URL が空の場合だけ使う任意の Cloudflare Queue relay。
     LINE_QUEUE_PULL_URL = os.getenv("LINE_QUEUE_PULL_URL", "").strip()
     LINE_QUEUE_API_TOKEN = os.getenv("LINE_QUEUE_API_TOKEN", "").strip()
     LINE_RELAY_KEY = os.getenv("LINE_RELAY_KEY", "").strip()
-    # 移行期間だけ残す旧 Render relay。
-    RENDER_URL = os.getenv("RENDER_URL", "")
 
     #SERVER setting
     SERVER_PORT = _int_env("SERVER_PORT", 5050)

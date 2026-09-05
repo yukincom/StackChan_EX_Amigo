@@ -90,7 +90,7 @@ bundleにはdotenv値、prompt/transcript、画像、音声、既存log、memory
 - 非同期音声pushは受付を永続化してから返します。外部POST前は `dispatching`、応答確認後は `acked` です。
 - crash時の `running` は `retry_wait` へ戻します。POST済みか不明な `dispatching` は二重再生を避けるため `uncertain` とし、自動再送しません。
 - 日次要約はatomic archive、`today.md` 更新、archive hash付きcomplete markerの順で完了します。部分archiveの存在だけでは処理済みにしません。
-- LINE通知は暗号文を復号し、ローカルmember照合とprivate spoolへのfsync後だけCloudflare QueueへACKします。同じ`webhookEventId`のredeliveryは決定的operation IDで重複排除します。
+- 任意のCloudflare Queue経路では、LINE通知の暗号文を復号し、ローカルmember照合とprivate spoolへのfsync後だけACKします。同じ`webhookEventId`のredeliveryは決定的operation IDで重複排除します。通常利用のRender経路には、このQueue固有の保証は適用されません。
 - JSONLの末尾だけが途中で切れた場合は最後の未完行を無視し、中間破損はfail-closedでreadinessを落とします。
 
 ## 統一config検査
