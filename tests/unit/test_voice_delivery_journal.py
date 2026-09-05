@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import queue
 
 import requests
@@ -80,3 +81,31 @@ def test_idempotency_key_reuses_one_persisted_delivery(monkeypatch, tmp_path):
     payload = journal.load_payload(operation["op_id"], "request.json").decode()
     assert "original" in payload
     assert "retry-must-not-replace" not in payload
+
+
+def test_new_async_push_has_no_fixed_wait_and_keeps_timeout(monkeypatch, tmp_path):
+    journal = _install_isolated_delivery(monkeypatch, tmp_path)
+    waits, calls = [], []
+    monkeypatch.setattr(voice_service.time, "sleep", waits.append)
+    def accepted(url, **kwargs):
+        calls.append((url, kwargs))
+        return _AcceptedResponse()
+    monkeypatch.setattr(voice_service.requests, "post", accepted)
+    assert voice_service.push_to_m5stack("http://127.0.0.1/voice/fixture")
+    op_id = voice_service._VOICE_DELIVERY_QUEUE.get_nowait()
+    assert json.loads(journal.load_payload(op_id, "request.json"))["delay_ms"] == 0
+    assert calls == []  # asynchronous enqueue is preserved
+    assert voice_service._deliver_voice_operation(op_id)
+    assert waits == []
+    assert len(calls) == 1 and calls[0][1]["timeout"] == 30
+
+
+def test_legacy_persisted_delay_remains_compatible(monkeypatch, tmp_path):
+    journal = _install_isolated_delivery(monkeypatch, tmp_path)
+    operation = journal.create("voice_push", owner="worker", payloads={
+        "request.json": json.dumps({"voice_url": "http://127.0.0.1/voice/fixture", "delay_ms": 1500}).encode()})
+    waits = []
+    monkeypatch.setattr(voice_service.time, "sleep", waits.append)
+    monkeypatch.setattr(voice_service.requests, "post", lambda *a, **k: _AcceptedResponse())
+    assert voice_service._deliver_voice_operation(operation["op_id"])
+    assert waits == [1.5]
