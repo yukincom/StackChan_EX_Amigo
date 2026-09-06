@@ -133,7 +133,8 @@ def test_cli_candidate_is_opt_in_and_reports_selected_prompt(tmp_path, monkeypat
     from services.conversation_lab import cli
     cases = Path(__file__).parents[1] / "fixtures/conversation_structure_cases.json"
     class FakeReader:
-        def __init__(self, *args):
+        prompt = cli.STRUCTURED_PROMPT
+        def __init__(self, *args, **kwargs):
             pass
         def __call__(self, inputs):
             data = prediction(name_use="none", name_text=None, reply_to_id=None,

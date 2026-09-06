@@ -6,6 +6,7 @@ from pathlib import Path
 from ..conversation_participation import Event, EventKind, Mode, State, advance
 from .context import DEFAULT_CONTEXT_CHARS, TextContext, Utterance, validate_names
 from .reader import LocalSceneReader, PROMPT
+from .model_identity import resolve_model_identity
 from .structured_reader import StructuredSceneReader, STRUCTURED_PROMPT
 from .cases import load_cases
 from .evaluation import replay_case, reply_demos
@@ -53,7 +54,7 @@ def interactive(reader, *, history_utterances=16, max_chars=DEFAULT_CONTEXT_CHAR
                           "reason": decision.reason}, ensure_ascii=False))
 
 
-def main(argv=None):
+def main(argv=None, *, model_config=None, model_config_loader=None):
     parser = argparse.ArgumentParser(description="Offline text participation lab; no firmware/app/TTS/memory startup")
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--cases", type=Path)
@@ -71,6 +72,12 @@ def main(argv=None):
     parser.add_argument("--split", choices=["dev", "holdout", "all"], default="dev")
     parser.add_argument("--output", type=Path, help="private replay report directory; never uploaded")
     args = parser.parse_args(argv)
+    def selected_identity():
+        configured = model_config
+        if args.model is None and configured is None and model_config_loader is not None:
+            configured = model_config_loader()
+        return resolve_model_identity(args.model, configured)
+
     if args.reader != "baseline" and args.backend != "local":
         parser.error("--reader structured requires --backend local")
     reader_type = StructuredSceneReader if args.reader == "structured" else LocalSceneReader
@@ -89,7 +96,8 @@ def main(argv=None):
     if args.interactive:
         if args.backend != "local" or len(windows) != 1 or args.output is not None:
             parser.error("manual input needs --backend local, one history width and no --output")
-        interactive(reader_type(args.model, args.endpoint), history_utterances=windows[0],
+        identity = selected_identity()
+        interactive(reader_type(identity.model, args.endpoint), history_utterances=windows[0],
                     max_chars=args.max_chars, aliases=args.name)
         return 0
     suite = load_cases(args.cases)
@@ -102,13 +110,17 @@ def main(argv=None):
         parser.error("reply demos require local, one case/window and existing turn IDs")
     if args.demo_turn and not selected[0].get("assistant_persona"):
         parser.error("reply demos require explicit assistant_persona in the case; no generic Qwen persona fallback")
-    reader = reader_type(args.model, args.endpoint) if args.backend == "local" else None
+    identity = selected_identity() if args.backend == "local" else None
+    reader = reader_type(identity.model, args.endpoint) if identity else None
+    if reader is not None:
+        prompt = reader.prompt
     report = {"schema_version": 1, "mode": "recorded_context_replay",
               "suite_sha256": hashlib.sha256(args.cases.read_bytes()).hexdigest(),
-              "reader": args.reader, "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+              "reader": args.reader, "prompt": prompt, "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
               "engine_sha256": hashlib.sha256(b"".join(p.name.encode() + b"\0" + p.read_bytes() for p in sorted(Path(__file__).parent.glob("*.py")))).hexdigest(),
               "reducer_sha256": hashlib.sha256((Path(__file__).parent.parent / "conversation_participation.py").read_bytes()).hexdigest(),
-              "model": args.model, "runs": []}
+              "model": identity.model if identity else args.model,
+              "model_series": identity.series if identity else None, "runs": []}
     for window in windows:
         for case in selected:
             run = replay_case(case, reader, backend=args.backend, history_utterances=window, max_chars=args.max_chars)

@@ -80,6 +80,11 @@ def parse_structure(data, payload):
 class StructuredSceneReader(LocalSceneReader):
     """Opt-in candidate; same transport, token cap and reply generator as baseline."""
 
+    @property
+    def prompt(self):
+        # Keep the rejected experiment frozen for reproducible comparisons.
+        return STRUCTURED_PROMPT
+
     def __call__(self, payload):
         content, usage = self._request([
             {"role": "system", "content": STRUCTURED_PROMPT},
