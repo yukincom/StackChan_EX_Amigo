@@ -103,7 +103,8 @@ class Config:
     AI_SUMMARY_PROVIDER = os.getenv("AI_SUMMARY_PROVIDER", "MLX").strip().lower()
     AI_SUMMARY_MODEL = os.getenv("AI_SUMMARY_MODEL", "mlx-community/Qwen3.6-35B-A3B-4bit")
 
-    AI_SEARCH_MODEL  = os.getenv("AI_SEARCH_MODEL",  "gemini-2.5-flash")  # 検索（Gemini固定）
+    AI_SEARCH_PROVIDER = os.getenv("AI_SEARCH_PROVIDER", "gemini").strip().lower()
+    AI_SEARCH_MODEL  = os.getenv("AI_SEARCH_MODEL",  "gemini-2.5-flash")  # Gemini検索用
 
     SEARCH_KEYWORDS = os.getenv("SEARCH_KEYWORDS", "調べて,しらべて,調査して,ちょうさして,サーチして,さーちして,ぐぐって,ググって").split(",")
     SPEECH_ALLOW_SHORT = os.getenv("SPEECH_ALLOW_SHORT", "はーい,いや,やだ,だめ,ねえ").split(",")
@@ -117,6 +118,7 @@ class Config:
     AI_MAX_OUTPUT_TOKENS = _int_env("AI_MAX_OUTPUT_TOKENS", 1200)
     AI_RECENT_TURNS = _int_env("AI_RECENT_TURNS", 5)
     AI_SEARCH_RECENT_TURNS = _int_env("AI_SEARCH_RECENT_TURNS", 1)
+    CONVERSATION_FORECAST_ENABLED = _bool_env("CONVERSATION_FORECAST_ENABLED", True)
     
     # 用途別temperature
     AI_CHAT_TEMPERATURE    = _float_env("AI_CHAT_TEMPERATURE", 0.8)  # 会話：豊か目に

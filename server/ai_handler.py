@@ -212,7 +212,7 @@ def get_ai_response(user_text, context, speaker, mode="normal"):
 アシスタント: """
     try:
         if search_mode:
-            raw = llm_client.call_search(prompt)
+            raw = llm_client.call_search(prompt, query=masked_text)
         else:
             raw = llm_client.call(prompt)
         ai_text = unmask_names(raw)

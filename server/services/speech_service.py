@@ -4,6 +4,7 @@ import os
 
 import re
 from config import config
+from services import conversation_forecast
 
 WHISPER_CLI   = config.WHISPER_CLI
 WHISPER_MODEL = config.WHISPER_MODEL
@@ -40,7 +41,7 @@ class SpeechService:
                 stt_profile = "EN"
             else:
                 model = ja_model
-                prompt = "日本語の日常会話です。"
+                prompt = conversation_forecast.decorate_stt_prompt("日本語の日常会話です。")
                 stt_profile = "JA"
                 if use_english_model and not en_model:
                     print(

@@ -8,6 +8,7 @@ import time
 import requests
 
 from config import config
+from services import conversation_forecast
 from ai_handler import (
     detect_intent,
     get_ai_response,
@@ -252,6 +253,20 @@ def _ai_response_suggests_visual_check(ai_response: str) -> bool:
     return any(pattern in text for pattern in hint_patterns)
 
 
+def schedule_conversation_forecast(user_text: str, ai_response: str) -> None:
+    """Submit the selected pair without making forecasting part of reply success."""
+    if not user_text or not ai_response:
+        return
+    try:
+        conversation_forecast.schedule_forecast(
+            mask_names(user_text),
+            mask_names(ai_response),
+        )
+    except Exception as exc:
+        # Forecasting is optional STT context and must not fail the reply.
+        print(f"[FORECAST] scheduling_failed error={type(exc).__name__}")
+
+
 def _build_voice_response(ai_response, user_text, speaker, speaker_label, generate_voice_flag, default_label):
     """音声生成・M5Stackへpush・会話保存・レスポンス返却をまとめた共通処理"""
     memory = RobotMemory()
@@ -260,6 +275,7 @@ def _build_voice_response(ai_response, user_text, speaker, speaker_label, genera
 
     if ai_response:
         print(f"[AI] ({len(ai_response)}文字): {mask_names(ai_response)}")
+        schedule_conversation_forecast(user_text, ai_response)
 
     if generate_voice_flag and ai_response:
         voice_result = generate_voice_mixed(

@@ -16,7 +16,11 @@ from flask import Blueprint, Response, jsonify, request
 from config import config
 from member_loader import MASTER_MASK_LABEL, mask_names
 from memory_manager import RobotMemory
-from services.chat_service import process_chat, resolve_speaker_context
+from services.chat_service import (
+    process_chat,
+    resolve_speaker_context,
+    schedule_conversation_forecast,
+)
 from services.openai_function_service import (
     build_function_call_message,
     decide_function_call,
@@ -320,6 +324,7 @@ def chat_completions():
                     ai_response=response_text,
                     speaker_label=speaker_label,
                 )
+                schedule_conversation_forecast(user_text, response_text)
             if response_text:
                 print(f"[AI] ({len(response_text)}文字): {mask_names(response_text)}")
             model = data.get("model") or config.AI_CHAT_MODEL or "stackchan-chat"

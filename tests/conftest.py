@@ -31,6 +31,7 @@ os.environ["VISION_DIR"] = str(LAB_ROOT / "vision-tmp")
 os.environ["VISION_ARCHIVE_DIR"] = str(LAB_ROOT / "vision-archive")
 os.environ["AI_PROVIDER"] = "lab"
 os.environ["AI_SUMMARY_PROVIDER"] = "lab"
+os.environ["CONVERSATION_FORECAST_ENABLED"] = "false"
 os.environ["ADMIN_TOKEN"] = ""
 
 
