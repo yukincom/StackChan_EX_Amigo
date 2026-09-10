@@ -23,6 +23,7 @@
 
 #include "driver/PlayMP3.h"   //lipSync
 #include "share/AudioLevel.h"
+#include "share/TouchGesture.h"
 #include "driver/TapDetect.h"
 
 #include "SpiRamJsonDocument.h"
@@ -477,8 +478,6 @@ void loop()
   process_function_call_events();
   //get_elapsed_time_micro("M5.update time");
   ModBase* mod = get_current_mod();
-  mod->idle();
-  //get_elapsed_time_micro("Mod idle time");
 
   if (M5.BtnA.wasPressed())
   {
@@ -506,39 +505,27 @@ void loop()
   }
 
 #if defined(ARDUINO_M5STACK_Core2) || defined( ARDUINO_M5STACK_CORES3 )
-  static bool touch_tracking = false;
-  static bool touch_long_handled = false;
-  static bool touch_suppressed = false;
-  static uint32_t touch_started_at = 0;
-  static int16_t touch_start_x = 0;
-  static int16_t touch_start_y = 0;
+  static stackchan::TouchGesture touchGesture;
   auto count = M5.Touch.getCount();
   if (count)
   {
     auto t = M5.Touch.getDetail();
-    if (!touch_tracking || t.wasPressed())
+    auto event = touchGesture.update(millis(), count, t.x, t.y, is_camera_trigger_active());
+    if (event == stackchan::TouchGesture::Event::LongPress)
     {
-      touch_tracking = true;
-      touch_long_handled = false;
-      touch_suppressed = is_camera_trigger_active();
-      touch_started_at = millis();
-      touch_start_x = t.x;
-      touch_start_y = t.y;
+      if (mod->display_long_touched(touchGesture.startX(), touchGesture.startY())) {
+        touchGesture.consume();
+      }
     }
 
-    if (!touch_suppressed && !touch_long_handled && (millis() - touch_started_at >= 2000))
+    if (touchGesture.canFlick() && t.wasFlicked())
     {
-      touch_long_handled = mod->display_long_touched(touch_start_x, touch_start_y);
-    }
-
-    if (!touch_suppressed && t.wasFlicked())
-    {
-      touch_long_handled = true;
+      touchGesture.cancel();
       int16_t dx = t.distanceX();
       int16_t dy = t.distanceY();
 
       // detect flick right/left
-      if(abs(dx) >= abs(dy))
+      if(!mod->display_flicked() && abs(dx) >= abs(dy))
       {
         if(dx > 0){
           //Serial.println("Right flicked");
@@ -551,15 +538,13 @@ void loop()
       }
     }
   }
-  else if (touch_tracking)
+  else
   {
-    if (!touch_suppressed && !touch_long_handled)
+    if (touchGesture.update(millis(), 0, 0, 0, is_camera_trigger_active())
+        == stackchan::TouchGesture::Event::Tap)
     {
-      mod->display_touched(touch_start_x, touch_start_y);
+      mod->display_touched(touchGesture.startX(), touchGesture.startY());
     }
-    touch_tracking = false;
-    touch_long_handled = false;
-    touch_suppressed = false;
   }
 #endif
 
@@ -578,6 +563,10 @@ void loop()
   }
 #endif
   //get_elapsed_time_micro("Callback process time");
+
+  // Dispatch touch release before an idle path can start blocking STT.
+  // A flick may have switched modules, so reacquire rather than using mod.
+  get_current_mod()->idle();
 
   if(!isOffline){
     web_server_handle_client();

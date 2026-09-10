@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include "mod/ModBase.h"
+#include "share/InputModeMenu.h"
 
 class AiStackChanMod: public ModBase{
 private:
@@ -17,12 +18,18 @@ private:
     #endif
     String avatarText;
     bool isOffline;
+    stackchan::InputModeMenu inputMenu;
+    bool touchInputOnly = false;  // Preserve the configured legacy startup path.
+    bool isQrDrawing = false;
     unsigned long textWakewordNextCheckMs = 0;
     unsigned long startupSpeechClearAtMs = 0;
     void clear_all_wakewords(void);
     void set_wakeword_enabled(bool enabled);
     void toggle_wakeword_enabled(void);
     bool handle_text_wakeword(void);
+    const char* input_mode_label(void) const;
+    void draw_input_menu(bool explainUnavailable = false);
+    void close_input_menu(void);
 public:
     AiStackChanMod(bool _isOffline);
 
@@ -34,6 +41,7 @@ public:
     void btnC_pressed(void);
     void display_touched(int16_t x, int16_t y);
     bool display_long_touched(int16_t x, int16_t y);
+    bool display_flicked(void);
     void doubleTapped(float ax, float ay, float az);   // 加速度センサによるダブルタップ検出のコールバック。platformio.iniで-DENABLE_TAP_DETECTを有効にしてください
     void idle(void);
 };

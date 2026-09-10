@@ -42,6 +42,7 @@ public:
   virtual void btnC_longPressed(void) {};
   virtual void display_touched(int16_t x, int16_t y) {};
   virtual bool display_long_touched(int16_t x, int16_t y) { return false; };
+  virtual bool display_flicked(void) { return false; };
   virtual void doubleTapped(float ax, float ay, float az) {};   // 加速度センサによるダブルタップ検出のコールバック。platformio.iniで-DENABLE_TAP_DETECTを有効にしてください
   virtual void idle(void) {};
   virtual bool isBusy(void) {return false;};

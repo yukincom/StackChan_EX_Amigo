@@ -193,6 +193,10 @@ void AiStackChanMod::init(void)
 
 void AiStackChanMod::pause(void)
 {
+  if (inputMenu.isOpen()) {
+    inputMenu.close();
+    avatar.set_isSubWindowEnable(false);
+  }
 #if defined(ENABLE_CAMERA)
   if(isSubWindowON){
     avatar.set_isSubWindowEnable(false);
@@ -217,6 +221,7 @@ void AiStackChanMod::set_wakeword_enabled(bool enabled)
 
   sw_tone();
   if (enabled) {
+    touchInputOnly = false;  // An explicit legacy wakeword command still works.
     avatar.setSpeechText("ウェイクワードを有効にしたよ");
     mode = 1;
     wakeword_is_enable = true;
@@ -264,6 +269,7 @@ void AiStackChanMod::btnB_longPressed(void)
   if (robot->m_config.getExConfig().wakeword.type != WAKEWORD_TYPE_SIMPLEVOX) {
     return;
   }
+  touchInputOnly = false;  // Explicit legacy registration needs its idle path.
   M5.Mic.end();
   M5.Speaker.tone(1000, 100);
   delay(500);
@@ -283,7 +289,9 @@ void AiStackChanMod::btnB_longPressed(void)
 
 void AiStackChanMod::btnC_pressed(void)
 {
-  static bool isQrDrawing = false;
+  if (inputMenu.isOpen()) {
+    close_input_menu();
+  }
   if(!isQrDrawing){
     avatar.setSpeechText("");
     String url = String("http://") + WiFi.localIP().toString();
@@ -424,6 +432,35 @@ bool AiStackChanMod::handle_text_wakeword(void)
 
 void AiStackChanMod::display_touched(int16_t x, int16_t y)
 {
+  // All menu taps are consumed, including cancel and unavailable options.
+  // They must never fall through to recording or camera capture.
+  if (inputMenu.isOpen()) {
+    if (is_camera_trigger_active()) {
+      close_input_menu();
+      return;
+    }
+    const auto action = inputMenu.tap(x, y);
+    if (action == stackchan::InputModeMenu::Action::AlwaysUnavailable) {
+      draw_input_menu(true);
+      return;
+    }
+    if (action == stackchan::InputModeMenu::Action::SelectTouch) {
+      touchInputOnly = true;
+#if defined(ENABLE_WAKEWORD)
+      mode = 0;
+      wakeword_is_enable = false;
+#if defined(ARDUINO_M5STACK_CORES3)
+      wakeword_enable_required = false;
+      wakeword_disable_required = false;
+      register_wakeword_required = false;
+#endif
+#endif
+    }
+    close_input_menu();
+    avatar.setSpeechText(input_mode_label());
+    return;
+  }
+
   if (!box_stt.contain(x, y))
   {
     return;
@@ -464,11 +501,18 @@ void AiStackChanMod::doubleTapped(float ax, float ay, float az)
 
 void AiStackChanMod::idle(void)
 {
+  if (inputMenu.isOpen() && is_camera_trigger_active()) {
+    close_input_menu();
+  }
   refreshIdleExpression(is_camera_trigger_active());
   if (startupSpeechClearAtMs != 0 && millis() >= startupSpeechClearAtMs) {
     avatar.setSpeechText("");
     startupSpeechClearAtMs = 0;
   }
+
+  // Let a finger held on the face reach the long-press handler without
+  // starting a blocking listen first. Menus pause automatic input, not alarms.
+  const bool inputUiActive = inputMenu.isOpen() || M5.Touch.getCount() != 0;
 
   /// Face detect ///
 #if defined(ENABLE_CAMERA)
@@ -476,14 +520,14 @@ void AiStackChanMod::idle(void)
 #if defined(ENABLE_FACE_DETECT)
   shouldHandleCamera = true;
 #endif
-  if (shouldHandleCamera) {
+  if (shouldHandleCamera && !inputUiActive) {
     //顔が検出されれば音声認識を開始。
     bool isFaceDetected;
     isFaceDetected = camera_capture_and_face_detect();
     if(!isSilentMode){
 
 #if defined(ENABLE_FACE_DETECT)
-      if(isFaceDetected){
+      if(isFaceDetected && !touchInputOnly){
         avatar.set_isSubWindowEnable(false);
         sw_tone();
         STT_ChatGPT();                              //音声認識
@@ -513,6 +557,7 @@ void AiStackChanMod::idle(void)
 
   //Wakeword
 #if defined(ENABLE_WAKEWORD)
+  if (!inputUiActive && !touchInputOnly && !is_camera_trigger_active()) {
     if (robot->m_config.getExConfig().wakeword.type == WAKEWORD_TYPE_TEXT_TRIGGER) {
       if (robot->m_config.getExConfig().wakeword.keyword != "" && millis() >= textWakewordNextCheckMs) {
         textWakewordNextCheckMs = millis() + 500;
@@ -555,8 +600,10 @@ void AiStackChanMod::idle(void)
         STT_ChatGPT();
       }
     }
+  }
 
 #if defined(ARDUINO_M5STACK_CORES3)
+  if (!inputUiActive && !is_camera_trigger_active()) {
     // Function Callからの要求でウェイクワード有効化
     if (wakeword_enable_required)
     {
@@ -577,6 +624,7 @@ void AiStackChanMod::idle(void)
       register_wakeword_required = false;
       btnB_longPressed();
     }
+  }
 #endif  //defined(ARDUINO_M5STACK_CORES3)
 #endif  //ENABLE_WAKEWORD
 
@@ -591,6 +639,9 @@ void AiStackChanMod::idle(void)
   }
 
   if (alarmTimerCallbacked) {
+    if (inputMenu.isOpen()) {
+      close_input_menu();
+    }
     alarmTimerCallbacked = false;
     avatar.setSpeechText("");
 #if defined(ENABLE_CAMERA)
@@ -622,5 +673,79 @@ void AiStackChanMod::idle(void)
 
 bool AiStackChanMod::display_long_touched(int16_t x, int16_t y)
 {
-  return false;
+  if (!box_stt.contain(x, y)) {
+    return false;
+  }
+  // Consume a hold even if it cannot open a menu; do not start STT on release.
+  if (is_camera_trigger_active()) {
+    return true;
+  }
+#if defined(ENABLE_WAKEWORD)
+  if (mode < 0) {  // Do not interrupt legacy wakeword registration.
+    return true;
+  }
+#endif
+  if (!inputMenu.isOpen()) {
+    inputMenu.open();
+    startupSpeechClearAtMs = 0;
+    avatar.setSpeechText("");
+    draw_input_menu();
+  }
+  return true;
+}
+
+bool AiStackChanMod::display_flicked(void)
+{
+  if (!inputMenu.isOpen()) {
+    return false;
+  }
+  close_input_menu();
+  return true;  // Close only; do not switch the underlying application mode.
+}
+
+const char* AiStackChanMod::input_mode_label(void) const
+{
+#if defined(ENABLE_WAKEWORD)
+  if (!touchInputOnly) {
+    const auto& wakeword = robot->m_config.getExConfig().wakeword;
+    if ((wakeword.type == WAKEWORD_TYPE_TEXT_TRIGGER && wakeword.keyword != "")
+        || (mode > 0 && wakeword_is_enable)) {
+      return "あいず";  // Existing wakeword startup is not always-on listening.
+    }
+  }
+#endif
+  return "タッチ";
+}
+
+void AiStackChanMod::draw_input_menu(bool explainUnavailable)
+{
+  using Menu = stackchan::InputModeMenu;
+  String text = String("はなしかた\nいま: ") + input_mode_label()
+      + "\n[ タッチ ]\n  タッチして はなす\n\n"
+        "[ いつでも ]\n";
+  text += explainUnavailable ? "  まだ つかえません\n\n" : "  せつぞくまち\n\n";
+  text += "そとを タッチで もどる";
+  // Reuse the existing text subwindow; no new sprite, task or audio buffer.
+  avatar.set_isSubWindowEnable(false);
+  avatar.updateSubWindowTxt(text, Menu::Top, Menu::Left, Menu::Width, Menu::Height);
+  avatar.set_isSubWindowEnable(true);
+}
+
+void AiStackChanMod::close_input_menu(void)
+{
+  inputMenu.close();
+  avatar.set_isSubWindowEnable(false);
+  if (isQrDrawing) {
+    String url = String("http://") + WiFi.localIP().toString();
+    avatar.updateSubWindowQrcode(url);
+    avatar.set_isSubWindowEnable(true);
+  }
+#if defined(ENABLE_CAMERA)
+  else if (isSubWindowON) {
+    // The next idle pass supplies a fresh camera frame using its usual size.
+    avatar.getFace()->subWindowPos->setPosition(0, 0);
+    avatar.getFace()->subWindowPos->setSize(0, 0);
+    avatar.set_isSubWindowEnable(true);
+  }
+#endif
 }
