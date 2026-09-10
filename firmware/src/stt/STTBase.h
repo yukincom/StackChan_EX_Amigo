@@ -17,6 +17,7 @@ enum class STTErrorType : uint8_t {
   Http,
   Parse,
   Memory,
+  Cancelled,
 };
 
 class STTBase{
@@ -30,6 +31,8 @@ public:
     STTBase() {};
     STTBase(stt_param_t param) : param{param}, isOfflineService{false} {};
     virtual String speech_to_text() = 0;
+    virtual String speech_to_text_interruptible() { return speech_to_text(); }
+    virtual bool supportsInterruptible() const { return false; }
     STTErrorType getLastError() const { return lastError; }
     void clearLastError() { lastError = STTErrorType::None; }
 

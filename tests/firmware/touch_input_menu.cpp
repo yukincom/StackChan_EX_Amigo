@@ -73,14 +73,15 @@ int main() {
   assert(!flick.canFlick());
   assert(flick.update(100, 0, 0, 0, false) == Event::None);
 
-  // An unavailable option never closes/selects or changes state. All other
+  // Selecting a mode closes the menu. All other
   // touches inside and outside the panel close only, not start conversation.
   Menu menu;
   assert(menu.tap(30, 70) == Action::None);
   menu.open();
-  assert(menu.tap(30, 130) == Action::AlwaysUnavailable);
-  assert(menu.isOpen());
-  assert(menu.tap(30, 130) == Action::AlwaysUnavailable);
+  assert(menu.tap(30, 130) == Action::SelectAlways);
+  assert(!menu.isOpen());
+  assert(menu.tap(30, 130) == Action::None);
+  menu.open();
   assert(menu.tap(10, 130) == Action::Close);
   assert(!menu.isOpen());
   menu.open();

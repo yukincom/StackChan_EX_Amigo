@@ -81,7 +81,8 @@ int16_t* MakeHeader(byte* header) {
   return (int16_t*)&header[headerSize];
 }
 
-bool AudioWhisper::Record() {
+bool AudioWhisper::Record(bool cancelOnTouch) {
+  cancelled = false;
   if (record_buffer == nullptr) {
     return false;
   }
@@ -91,6 +92,16 @@ bool AudioWhisper::Record() {
   }
   auto *wavData = MakeHeader(record_buffer);
   for (int rec_record_idx = 0; rec_record_idx < record_number; ++rec_record_idx) {
+    if (cancelOnTouch) {
+      // Poll only: never dispatch a menu, another recording or a camera action
+      // while this recorder owns the mic. The main loop handles the contact.
+      M5.update();
+      if (M5.Touch.getCount() != 0) {
+        cancelled = true;
+        M5.Mic.end();
+        return false;
+      }
+    }
     auto data = &wavData[rec_record_idx * record_length];
     if (!M5.Mic.record(data, record_length, record_samplerate)) {
       Serial.printf("AudioWhisper: recording failed at chunk %d\n", rec_record_idx);
@@ -102,6 +113,14 @@ bool AudioWhisper::Record() {
   static constexpr uint32_t kRecordingDrainTimeoutMs = 2000;
   const uint32_t startedAt = millis();
   while (M5.Mic.isRecording()) {
+    if (cancelOnTouch) {
+      M5.update();
+      if (M5.Touch.getCount() != 0) {
+        cancelled = true;
+        M5.Mic.end();
+        return false;
+      }
+    }
     if (static_cast<uint32_t>(millis() - startedAt) >= kRecordingDrainTimeoutMs) {
       Serial.println("AudioWhisper: timed out waiting for recording completion");
       M5.Mic.end();

@@ -27,7 +27,9 @@ public:
     void initTTS(StackchanExConfig& config);
 
     void speech(String text);
+    bool speechChecked(String text);
     String listen();
+    String listenInterruptible();
     void chat(String text, const char *base64_buf = NULL);
 };
 

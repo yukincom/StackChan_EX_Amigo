@@ -5,12 +5,16 @@ namespace m5 {
 class Speaker_Class {
  public:
   bool accepted = true;
+  int queued = 0;
+  bool stuck = false;
   bool playRaw(const int16_t*, size_t, uint32_t, bool, int, uint8_t) { return accepted; }
   void stop(uint8_t) {}
+  bool isPlaying(uint8_t) { return stuck || queued-- > 0; }
 };
 }
 uint32_t now = 100;
 uint32_t millis() { return now; }
+void delay(uint32_t ms) { now += ms; }
 #include "driver/AudioOutputM5Speaker.h"
 
 int main() {
@@ -24,6 +28,7 @@ int main() {
   AudioOutputM5Speaker out(&speaker);
   out.begin();
   assert(out.getLevel() == 0);
+  assert(!out.playbackDelivered());
   for (int16_t value : wave) {
     int16_t sample[] = {value, value};
     assert(out.ConsumeSample(sample));
@@ -38,10 +43,28 @@ int main() {
   assert(out.getLevel() == 1000);
   out.stop();
   assert(out.getLevel() == 0);
+  assert(out.playbackDelivered());
   speaker.accepted = false;
   out.ConsumeSample(sample);
   out.flush();
   assert(out.getLevel() == 0);
+  assert(!out.playbackDelivered());
+  speaker.accepted = true;
+  out.begin();
+  out.setDrainOnStop(true);
+  out.ConsumeSample(sample);
+  speaker.queued = 4;
+  uint32_t beforeDrain = now;
+  out.stop();
+  assert(now - beforeDrain == 4);  // No artificial two-second delay.
+  assert(out.playbackDelivered());
+  out.begin();
+  out.ConsumeSample(sample);
+  speaker.stuck = true;
+  beforeDrain = now;
+  out.stop();
+  assert(now - beforeDrain == 2000);
+  assert(!out.playbackDelivered());
   stackchan::MouthEnvelope mouth;
   assert(mouth.update(0) == 0.0f);
   float open = mouth.update(15000);

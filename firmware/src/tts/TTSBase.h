@@ -24,6 +24,9 @@ public:
     TTSBase() {};
     TTSBase(tts_param_t param) : param(param), isOfflineService(false) {};
     virtual void stream(String text) = 0;
+    // Opt-in acknowledgement support. Unknown backends cannot claim success.
+    virtual bool streamChecked(String text) { return false; };
+    virtual bool supportsCheckedStream() const { return false; }
     virtual int getLevel(){ return out.getLevel(); };
 
 };

@@ -130,6 +130,22 @@ String Robot::listen()
   return ret;
 }
 
+bool Robot::speechChecked(String text)
+{
+  if (text.isEmpty()) return false;
+  servo_home = false;
+  setActivityExpression(Expression::Neutral);
+  const bool completed = tts->streamChecked(text);
+  setIdleExpression();
+  servo_home = true;
+  return completed;
+}
+
+String Robot::listenInterruptible()
+{
+  return stt->speech_to_text_interruptible();
+}
+
 void Robot::chat(String text, const char *base64_buf)
 {
   llm->chat(text, base64_buf);

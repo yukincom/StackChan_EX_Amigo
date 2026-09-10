@@ -18,6 +18,13 @@ jobs:
       STACKCHAN_SKIP_DOTENV: "1"
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch existing firmware JSON dependency for host contract tests
+        uses: actions/checkout@v4
+        with:
+          repository: bblanchon/ArduinoJson
+          ref: v7.4.3
+          path: firmware/.pio/libdeps/m5stack-cores3/ArduinoJson
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11.14"

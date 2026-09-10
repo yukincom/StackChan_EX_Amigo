@@ -126,7 +126,10 @@ String Whisper::Transcribe(AudioWhisper* audio) {
   }
   if (httpCode >= 400) {
     Serial.printf("Whisper: server returned HTTP %d\n", httpCode);
-    lastError = (httpCode >= 500) ? STTErrorType::Connection : STTErrorType::NoSpeech;
+    // The local transcription route uses 400 for no speech. Authentication,
+    // missing routes and rate limits must not become an endless silent retry.
+    lastError = httpCode == 400 ? STTErrorType::NoSpeech
+        : (httpCode >= 500 ? STTErrorType::Connection : STTErrorType::Http);
     return "";
   }
 
@@ -152,6 +155,14 @@ String Whisper::Transcribe(AudioWhisper* audio) {
 }
 
 String Whisper::speech_to_text(){
+  return recognize(false);
+}
+
+String Whisper::speech_to_text_interruptible(){
+  return recognize(true);
+}
+
+String Whisper::recognize(bool cancelOnTouch){
   String ret;
   clearLastError();
   AudioWhisper* audio = new (std::nothrow) AudioWhisper();
@@ -162,9 +173,8 @@ String Whisper::speech_to_text(){
     return "";
   }
   Serial.println("\r\nRecord start!\r\n");
-  if (!audio->Record()) {
-    Serial.println("Whisper: recording failed");
-    lastError = STTErrorType::Memory;
+  if (!audio->Record(cancelOnTouch)) {
+    lastError = audio->WasCancelled() ? STTErrorType::Cancelled : STTErrorType::Memory;
     delete audio;
     return "";
   }

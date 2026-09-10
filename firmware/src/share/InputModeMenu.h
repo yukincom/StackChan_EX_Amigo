@@ -3,10 +3,9 @@
 namespace stackchan {
 
 // CoreS3/Core2 320x240 screen. Text uses the existing 20px SubWindow font.
-// There is deliberately no Always-selected state until a real input path exists.
 class InputModeMenu {
  public:
-  enum class Action { None, Close, SelectTouch, AlwaysUnavailable };
+  enum class Action { None, Close, SelectTouch, SelectAlways };
   static constexpr int Left = 20;
   static constexpr int Top = 20;
   static constexpr int Width = 280;
@@ -23,7 +22,8 @@ class InputModeMenu {
         return Action::SelectTouch;
       }
       if (y >= Top + 100 && y < Top + 140) {
-        return Action::AlwaysUnavailable;
+        close();
+        return Action::SelectAlways;
       }
     }
     close();

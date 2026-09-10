@@ -56,7 +56,7 @@ void mp3_init(void)
     audioLogger = &Serial;
 }
 
-bool playMP3(AudioFileSourceBuffer *buff){
+bool playMP3(AudioFileSourceBuffer *buff, bool checkCompletion){
 
   if (mp3 == nullptr || preallocateBuffer == nullptr || buff == nullptr) {
     Serial.println("MP3 playback is unavailable");
@@ -65,17 +65,30 @@ bool playMP3(AudioFileSourceBuffer *buff){
 
   M5.Mic.end();
   M5.Speaker.begin();
+  out.setDrainOnStop(checkCompletion);
+  bool decodeError = false;
+  bool decoderReachedEof = false;
+  mp3->RegisterStatusCB([](void* context, int code, const char*) {
+    // BUFLEN asks for more input during normal decoding. Exhausting its retry
+    // limit stops the decoder internally and is caught by isRunning below.
+    if (code != MAD_ERROR_BUFLEN) *static_cast<bool*>(context) = true;
+  }, &decodeError);
 
   if (!mp3->begin(buff, &out)) {
     Serial.println("failed to start mp3 decoder");
     M5.Speaker.end();
     M5.Mic.begin();
+    out.setDrainOnStop(false);
+    mp3->RegisterStatusCB(nullptr, nullptr);
     return false;
   }
   Serial.println("mp3 start");
 
   while(mp3->isRunning()) {
     if (!mp3->loop()) {
+      // Natural EOF returns false without clearing running. Decode failures
+      // either report a status or stop internally; neither is played-complete.
+      decoderReachedEof = mp3->isRunning();
       mp3->stop();
       Serial.println("mp3 stop");
     }
@@ -84,7 +97,9 @@ bool playMP3(AudioFileSourceBuffer *buff){
 
   M5.Speaker.end();
   M5.Mic.begin();
-  return true;
+  out.setDrainOnStop(false);
+  mp3->RegisterStatusCB(nullptr, nullptr);
+  return !checkCompletion || (decoderReachedEof && !decodeError && out.playbackDelivered());
 }
 
 bool playMP3SPIFFS(const char *filename)

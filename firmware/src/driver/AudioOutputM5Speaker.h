@@ -18,7 +18,12 @@ class AudioOutputM5Speaker : public AudioOutput
       _virtual_ch = virtual_sound_channel;
     }
     virtual ~AudioOutputM5Speaker(void) {};
-    virtual bool begin(void) override { _rms_level.store(0); return true; }
+    virtual bool begin(void) override {
+      _rms_level.store(0);
+      _had_pcm = false;
+      _output_failed = false;
+      return true;
+    }
     virtual bool ConsumeSample(int16_t sample[2]) override
     {
       if (_tri_buffer_index < tri_buf_size)
@@ -39,6 +44,8 @@ class AudioOutputM5Speaker : public AudioOutput
       {
         const int level = stackchan::pcmRms(_tri_buffer[_tri_index], _tri_buffer_index);
         const bool accepted = _m5sound->playRaw(_tri_buffer[_tri_index], _tri_buffer_index, hertz, true, 1, _virtual_ch);
+        _had_pcm = _had_pcm || accepted;
+        _output_failed = _output_failed || !accepted;
         _level_at.store(millis());
         _rms_level.store(accepted ? level : 0);
         _tri_index = _tri_index < 2 ? _tri_index + 1 : 0;
@@ -49,6 +56,18 @@ class AudioOutputM5Speaker : public AudioOutput
     virtual bool stop(void) override
     {
       flush();
+      if (_drain_on_stop) {
+        // This is a queue-drain deadline, NOT a fixed delay before speaking.
+        // Normally only the final few PCM blocks remain here.
+        const uint32_t started = millis();
+        while (_m5sound->isPlaying(_virtual_ch)) {
+          if (uint32_t(millis() - started) >= 2000) {
+            _output_failed = true;
+            break;
+          }
+          delay(1);
+        }
+      }
       _m5sound->stop(_virtual_ch);
       _rms_level.store(0);
       for (size_t i = 0; i < 3; ++i)
@@ -67,6 +86,8 @@ class AudioOutputM5Speaker : public AudioOutput
           ? 0 : _rms_level.load();
     }
     const uint32_t getUpdateCount(void) const { return _update_count; }
+    void setDrainOnStop(bool enabled) { _drain_on_stop = enabled; }
+    bool playbackDelivered() const { return _had_pcm && !_output_failed; }
 
   protected:
     m5::Speaker_Class* _m5sound;
@@ -78,6 +99,9 @@ class AudioOutputM5Speaker : public AudioOutput
     size_t _tri_buffer_index = 0;
     size_t _tri_index = 0;
     size_t _update_count = 0;
+    bool _drain_on_stop = false;
+    bool _had_pcm = false;
+    bool _output_failed = false;
 };
 
 #define FFT_SIZE 256

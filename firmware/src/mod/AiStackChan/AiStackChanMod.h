@@ -28,8 +28,11 @@ private:
     void toggle_wakeword_enabled(void);
     bool handle_text_wakeword(void);
     const char* input_mode_label(void) const;
-    void draw_input_menu(bool explainUnavailable = false);
+    void draw_input_menu(void);
     void close_input_menu(void);
+    void select_touch_input(void);
+    void stop_always_input(const char* message);
+    void listen_always_input(void);
 public:
     AiStackChanMod(bool _isOffline);
 

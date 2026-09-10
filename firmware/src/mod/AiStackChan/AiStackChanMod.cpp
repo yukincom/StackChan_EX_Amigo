@@ -10,6 +10,7 @@
 #include "llm/ChatGPT/ChatGPT.h"
 #include "llm/ChatGPT/FunctionCall.h"
 #include "driver/PlayMP3.h"
+#include "driver/ConversationEvents.h"
 #include "driver/WakeWord.h"
 #include <WiFiClientSecure.h>
 #include "Scheduler.h"
@@ -193,6 +194,10 @@ void AiStackChanMod::init(void)
 
 void AiStackChanMod::pause(void)
 {
+  if (stackchan::conversationSession().enabled()) {
+    select_touch_input();
+    stackchan::conversationSession().stop();
+  }
   if (inputMenu.isOpen()) {
     inputMenu.close();
     avatar.set_isSubWindowEnable(false);
@@ -212,6 +217,8 @@ void AiStackChanMod::update(int page_no)
 void AiStackChanMod::set_wakeword_enabled(bool enabled)
 {
 #if defined(ENABLE_WAKEWORD)
+  // Legacy commands must not replace an explicit server-managed session.
+  if (stackchan::conversationSession().enabled()) return;
   if (robot->m_config.getExConfig().wakeword.type != WAKEWORD_TYPE_SIMPLEVOX) {
     return;
   }
@@ -266,6 +273,7 @@ void AiStackChanMod::btnA_pressed(void)
 void AiStackChanMod::btnB_longPressed(void)
 {
 #if defined(ENABLE_WAKEWORD)
+  if (stackchan::conversationSession().enabled()) return;
   if (robot->m_config.getExConfig().wakeword.type != WAKEWORD_TYPE_SIMPLEVOX) {
     return;
   }
@@ -432,7 +440,7 @@ bool AiStackChanMod::handle_text_wakeword(void)
 
 void AiStackChanMod::display_touched(int16_t x, int16_t y)
 {
-  // All menu taps are consumed, including cancel and unavailable options.
+  // All menu taps are consumed, including cancel and connection failures.
   // They must never fall through to recording or camera capture.
   if (inputMenu.isOpen()) {
     if (is_camera_trigger_active()) {
@@ -440,23 +448,31 @@ void AiStackChanMod::display_touched(int16_t x, int16_t y)
       return;
     }
     const auto action = inputMenu.tap(x, y);
-    if (action == stackchan::InputModeMenu::Action::AlwaysUnavailable) {
-      draw_input_menu(true);
+    close_input_menu();
+    auto& session = stackchan::conversationSession();
+    if (action == stackchan::InputModeMenu::Action::SelectTouch) {
+      select_touch_input();
+      const bool stopped = session.stop();
+      avatar.setSpeechText(stopped ? "タッチ" : "タッチ\nせつぞく エラー");
       return;
     }
-    if (action == stackchan::InputModeMenu::Action::SelectTouch) {
-      touchInputOnly = true;
-#if defined(ENABLE_WAKEWORD)
-      mode = 0;
-      wakeword_is_enable = false;
-#if defined(ARDUINO_M5STACK_CORES3)
-      wakeword_enable_required = false;
-      wakeword_disable_required = false;
-      register_wakeword_required = false;
-#endif
-#endif
+    if (action == stackchan::InputModeMenu::Action::SelectAlways) {
+      if (session.enabled()) {
+        avatar.setSpeechText("いつでも");
+        return;  // No restart or extra start event on reselection.
+      }
+      select_touch_input();
+      if (isOffline || !robot->stt->supportsInterruptible()
+          || !robot->tts->supportsCheckedStream()) {
+        avatar.setSpeechText("タッチ\nおんせい せっていを\nたしかめてね");
+        return;
+      }
+      avatar.setSpeechText("せつぞくちゅう");
+      if (!session.start()) {
+        stop_always_input("せつぞく エラー");
+        return;
+      }
     }
-    close_input_menu();
     avatar.setSpeechText(input_mode_label());
     return;
   }
@@ -468,6 +484,15 @@ void AiStackChanMod::display_touched(int16_t x, int16_t y)
 
   if (is_camera_trigger_active()) {
     return;
+  }
+
+  if (stackchan::conversationSession().enabled()) {
+    if (!stackchan::conversationSession().faceTouch()) {
+      stop_always_input("せつぞく エラー");
+    } else {
+      avatar.setSpeechText("いつでも");
+    }
+    return;  // Resume through the server, never through legacy robot->chat().
   }
 
   sw_tone();
@@ -669,6 +694,68 @@ void AiStackChanMod::idle(void)
     run_schedule();
   }
 
+  // The user enabled this session; no wakeword gate before each turn. Even in
+  // quiet state send recognized speech to the server, which decides resumption.
+  if (!inputUiActive && !is_camera_trigger_active()
+      && stackchan::conversationSession().enabled()) {
+    listen_always_input();
+  }
+}
+
+void AiStackChanMod::select_touch_input(void)
+{
+  touchInputOnly = true;
+  startupSpeechClearAtMs = 0;
+#if defined(ENABLE_WAKEWORD)
+  mode = 0;
+  wakeword_is_enable = false;
+#if defined(ARDUINO_M5STACK_CORES3)
+  wakeword_enable_required = false;
+  wakeword_disable_required = false;
+  register_wakeword_required = false;
+#endif
+#endif
+}
+
+void AiStackChanMod::stop_always_input(const char* message)
+{
+  select_touch_input();
+  // No retries and no fabricated playback acknowledgement, including after a
+  // 409, partial playback or unsupported camera action. Locally off immediately.
+  stackchan::conversationSession().stop();
+  const String text = String("タッチ\n") + message;
+  avatar.setSpeechText(text.c_str());
+  setIdleExpression();
+}
+
+void AiStackChanMod::listen_always_input(void)
+{
+  auto& session = stackchan::conversationSession();
+  if (session.phase() != stackchan::ConversationSession::Phase::Listening) return;
+  const String transcript = robot->listenInterruptible();
+  if (transcript.isEmpty()) {
+    if (is_stt_backend_error()) stop_always_input("せつぞく エラー");
+    return;  // NoSpeech / Cancelled: no TTS, event, log or history entry.
+  }
+  const auto outcome = session.speech(transcript.c_str());
+  if (outcome == stackchan::ConversationSession::Outcome::Failed) {
+    const bool unsupported = session.error() == stackchan::ConversationSession::Error::UnsupportedAction;
+    stop_always_input(unsupported ? "この おへんじは\nまだ つかえません" : "せつぞく エラー");
+    return;
+  }
+  if (outcome == stackchan::ConversationSession::Outcome::Reply) {
+    // The pending-reply barrier remains closed until actual software playback
+    // drains and the server accepts the matching reply_id.
+    if (!robot->speechChecked(session.replyText().c_str())) {
+      stop_always_input("おんせい エラー");
+      return;
+    }
+    if (!session.playbackCompleted()) {
+      stop_always_input("せつぞく エラー");
+      return;
+    }
+  }
+  avatar.setSpeechText(session.quiet() ? "いつでも\nきいているよ" : "いつでも");
 }
 
 bool AiStackChanMod::display_long_touched(int16_t x, int16_t y)
@@ -705,6 +792,7 @@ bool AiStackChanMod::display_flicked(void)
 
 const char* AiStackChanMod::input_mode_label(void) const
 {
+  if (stackchan::conversationSession().enabled()) return "いつでも";
 #if defined(ENABLE_WAKEWORD)
   if (!touchInputOnly) {
     const auto& wakeword = robot->m_config.getExConfig().wakeword;
@@ -717,13 +805,12 @@ const char* AiStackChanMod::input_mode_label(void) const
   return "タッチ";
 }
 
-void AiStackChanMod::draw_input_menu(bool explainUnavailable)
+void AiStackChanMod::draw_input_menu(void)
 {
   using Menu = stackchan::InputModeMenu;
   String text = String("はなしかた\nいま: ") + input_mode_label()
       + "\n[ タッチ ]\n  タッチして はなす\n\n"
-        "[ いつでも ]\n";
-  text += explainUnavailable ? "  まだ つかえません\n\n" : "  せつぞくまち\n\n";
+        "[ いつでも ]\n  そのまま はなす\n\n";
   text += "そとを タッチで もどる";
   // Reuse the existing text subwindow; no new sprite, task or audio buffer.
   avatar.set_isSubWindowEnable(false);
