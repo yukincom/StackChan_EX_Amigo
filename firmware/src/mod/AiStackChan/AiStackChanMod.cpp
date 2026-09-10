@@ -4,6 +4,7 @@
 #include <SPIFFS.h>
 #include "mod/ModManager.h"
 #include "AiStackChanMod.h"
+#include "InputModeMenuView.h"
 #include <Avatar.h>
 #include "Robot.h"
 #include "share/IdleExpression.h"
@@ -200,6 +201,7 @@ void AiStackChanMod::pause(void)
   }
   if (inputMenu.isOpen()) {
     inputMenu.close();
+    avatar.getFace()->setScreenOverlay(nullptr);
     avatar.set_isSubWindowEnable(false);
   }
 #if defined(ENABLE_CAMERA)
@@ -438,45 +440,48 @@ bool AiStackChanMod::handle_text_wakeword(void)
   return true;
 }
 
-void AiStackChanMod::display_touched(int16_t x, int16_t y)
+bool AiStackChanMod::display_touch_contact(unsigned count, int16_t x, int16_t y)
 {
-  // All menu taps are consumed, including cancel and connection failures.
-  // They must never fall through to recording or camera capture.
   if (inputMenu.isOpen()) {
     if (is_camera_trigger_active()) {
       close_input_menu();
-      return;
+      return true;
     }
-    const auto action = inputMenu.tap(x, y);
+    const auto action = inputMenu.contact(count, x, y);
+    if (action == stackchan::InputModeMenu::Action::None) return true;
     close_input_menu();
     auto& session = stackchan::conversationSession();
     if (action == stackchan::InputModeMenu::Action::SelectTouch) {
       select_touch_input();
       const bool stopped = session.stop();
-      avatar.setSpeechText(stopped ? "タッチ" : "タッチ\nせつぞく エラー");
-      return;
+      avatar.setSpeechText(stopped ? "" : "タッチ\nせつぞく エラー");
+      return true;
     }
     if (action == stackchan::InputModeMenu::Action::SelectAlways) {
       if (session.enabled()) {
-        avatar.setSpeechText("いつでも");
-        return;  // No restart or extra start event on reselection.
+        avatar.setSpeechText("");
+        return true;  // No restart or extra start event on reselection.
       }
       select_touch_input();
       if (isOffline || !robot->stt->supportsInterruptible()
           || !robot->tts->supportsCheckedStream()) {
         avatar.setSpeechText("タッチ\nおんせい せっていを\nたしかめてね");
-        return;
+        return true;
       }
-      avatar.setSpeechText("せつぞくちゅう");
       if (!session.start()) {
         stop_always_input("せつぞく エラー");
-        return;
+        return true;
       }
     }
-    avatar.setSpeechText(input_mode_label());
-    return;
+    avatar.setSpeechText("");
+    return true;
   }
+  return false;
+}
 
+void AiStackChanMod::display_touched(int16_t x, int16_t y)
+{
+  if (inputMenu.isOpen()) return;  // Modal choices are handled on contact-down.
   if (!box_stt.contain(x, y))
   {
     return;
@@ -786,41 +791,20 @@ bool AiStackChanMod::display_flicked(void)
   if (!inputMenu.isOpen()) {
     return false;
   }
-  close_input_menu();
-  return true;  // Close only; do not switch the underlying application mode.
-}
-
-const char* AiStackChanMod::input_mode_label(void) const
-{
-  if (stackchan::conversationSession().enabled()) return "いつでも";
-#if defined(ENABLE_WAKEWORD)
-  if (!touchInputOnly) {
-    const auto& wakeword = robot->m_config.getExConfig().wakeword;
-    if ((wakeword.type == WAKEWORD_TYPE_TEXT_TRIGGER && wakeword.keyword != "")
-        || (mode > 0 && wakeword_is_enable)) {
-      return "あいず";  // Existing wakeword startup is not always-on listening.
-    }
-  }
-#endif
-  return "タッチ";
+  return true;  // Keep the two choices open; no hidden flick action.
 }
 
 void AiStackChanMod::draw_input_menu(void)
 {
-  using Menu = stackchan::InputModeMenu;
-  String text = String("はなしかた\nいま: ") + input_mode_label()
-      + "\n[ タッチ ]\n  タッチして はなす\n\n"
-        "[ いつでも ]\n  そのまま はなす\n\n";
-  text += "そとを タッチで もどる";
-  // Reuse the existing text subwindow; no new sprite, task or audio buffer.
+  static InputModeMenuView view;
   avatar.set_isSubWindowEnable(false);
-  avatar.updateSubWindowTxt(text, Menu::Top, Menu::Left, Menu::Width, Menu::Height);
-  avatar.set_isSubWindowEnable(true);
+  avatar.getFace()->setScreenOverlay(&view);
 }
 
 void AiStackChanMod::close_input_menu(void)
 {
   inputMenu.close();
+  avatar.getFace()->setScreenOverlay(nullptr);
   avatar.set_isSubWindowEnable(false);
   if (isQrDrawing) {
     String url = String("http://") + WiFi.localIP().toString();

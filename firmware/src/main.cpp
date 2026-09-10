@@ -507,7 +507,23 @@ void loop()
 #if defined(ARDUINO_M5STACK_Core2) || defined( ARDUINO_M5STACK_CORES3 )
   static stackchan::TouchGesture touchGesture;
   auto count = M5.Touch.getCount();
-  if (count)
+  unsigned pressedCount = 0;
+  int16_t contactX = 0, contactY = 0;
+  for (unsigned i = 0; i < count; ++i) {
+    const auto& detail = M5.Touch.getDetail(i);
+    // M5Unified retains release details for a frame; getCount alone does not
+    // mean a finger is still down. The modal release gate needs real contacts.
+    if (detail.isPressed()) {
+      ++pressedCount;
+      contactX = detail.x;
+      contactY = detail.y;
+    }
+  }
+  if (mod->display_touch_contact(pressedCount, contactX, contactY)) {
+    touchGesture.update(millis(), count, contactX, contactY, true);
+    touchGesture.cancel();  // No STT, flick or long-press on selection release.
+  }
+  else if (count)
   {
     auto t = M5.Touch.getDetail();
     auto event = touchGesture.update(millis(), count, t.x, t.y, is_camera_trigger_active());

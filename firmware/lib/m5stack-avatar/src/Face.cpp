@@ -77,6 +77,17 @@ Drawable *Face::getRightEye() { return eyeR; }
 BoundingRect *Face::getBoundingRect() { return boundingRect; }
 
 void Face::draw(DrawContext *ctx) {
+  // Modal screen UI has physical touch coordinates. Do not scale, rotate,
+  // offset, cover with the face, or depend on the face's rotation branch.
+  if (auto* overlay = screenOverlay.load()) {
+    sprite->setColorDepth(ctx->getColorDepth());
+    sprite->setBitmapColor(WHITE, BLACK);
+    sprite->createSprite(M5.Display.width(), M5.Display.height());
+    overlay->draw(sprite, BoundingRect(0, 0, M5.Display.width(), M5.Display.height()), ctx);
+    sprite->pushSprite(&M5.Display, 0, 0);
+    sprite->deleteSprite();
+    return;
+  }
   sprite->createSprite(boundingRect->getWidth(), boundingRect->getHeight());
   sprite->setColorDepth(ctx->getColorDepth());
   // NOTE: setting below for 1-bit color depth

@@ -27,7 +27,6 @@ private:
     void set_wakeword_enabled(bool enabled);
     void toggle_wakeword_enabled(void);
     bool handle_text_wakeword(void);
-    const char* input_mode_label(void) const;
     void draw_input_menu(void);
     void close_input_menu(void);
     void select_touch_input(void);
@@ -43,6 +42,7 @@ public:
     void btnB_longPressed(void);
     void btnC_pressed(void);
     void display_touched(int16_t x, int16_t y);
+    bool display_touch_contact(unsigned count, int16_t x, int16_t y) override;
     bool display_long_touched(int16_t x, int16_t y);
     bool display_flicked(void);
     void doubleTapped(float ax, float ay, float az);   // 加速度センサによるダブルタップ検出のコールバック。platformio.iniで-DENABLE_TAP_DETECTを有効にしてください

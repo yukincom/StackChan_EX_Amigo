@@ -5,6 +5,7 @@
 #ifndef FACE_H_
 #define FACE_H_
 
+#include <atomic>
 #include "Balloon.h"
 #include "BoundingRect.h"
 #include "Eye.h"
@@ -32,6 +33,8 @@ class Face {
   BoundingRect *boundingRect;
   M5Canvas *sprite;
   M5Canvas *tmpSprite;
+  // Non-owning. Screen UI objects must outlive rendering (e.g. static storage).
+  std::atomic<Drawable*> screenOverlay{nullptr};
 
  public:
   SubWindow *subWindow;        // motoh
@@ -74,6 +77,7 @@ class Face {
   void setRightEyeblow();
 
   void draw(DrawContext *ctx);
+  void setScreenOverlay(Drawable* overlay) { screenOverlay.store(overlay); }
 
 
 };
