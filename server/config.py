@@ -107,8 +107,6 @@ class Config:
     AI_SEARCH_MODEL  = os.getenv("AI_SEARCH_MODEL",  "gemini-2.5-flash")  # Gemini検索用
 
     SEARCH_KEYWORDS = os.getenv("SEARCH_KEYWORDS", "調べて,しらべて,調査して,ちょうさして,サーチして,さーちして,ぐぐって,ググって").split(",")
-    SPEECH_ALLOW_SHORT = os.getenv("SPEECH_ALLOW_SHORT", "はーい,いや,やだ,だめ,ねえ").split(",")
-    
     THINKING_STRIP_PATTERNS = os.getenv(
         "THINKING_STRIP_PATTERNS", 
         "Final Response:,Response:"
@@ -149,6 +147,11 @@ class Config:
     WHISPER_MODEL = os.getenv("WHISPER_MODEL", "")
     WHISPER_NO_SPEECH_THOLD = _float_env("WHISPER_NO_SPEECH_THOLD", 0.6)
     WHISPER_MODEL_EN = os.getenv("WHISPER_MODEL_EN", "")
+    WHISPER_VAD_MODEL = os.getenv("WHISPER_VAD_MODEL", "")
+    WHISPER_VAD_THRESHOLD = _float_env("WHISPER_VAD_THRESHOLD", 0.5)
+    WHISPER_VAD_MIN_SPEECH_MS = _int_env("WHISPER_VAD_MIN_SPEECH_MS", 250)
+    WHISPER_VAD_MIN_SILENCE_MS = _int_env("WHISPER_VAD_MIN_SILENCE_MS", 500)
+    WHISPER_VAD_SPEECH_PAD_MS = _int_env("WHISPER_VAD_SPEECH_PAD_MS", 200)
 
     # Voice Server settings(VOICE VOX)
     VOICE_SERVER_URL = os.getenv("VOICE_SERVER_URL", "http://127.0.0.1:5001")

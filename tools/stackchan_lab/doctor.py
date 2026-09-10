@@ -189,7 +189,7 @@ def run_doctor(repo_root: Path, env_dir: Path | None = None) -> list[CheckResult
     else:
         results.append(_warn("executable:ffmpeg", "ffmpeg is unavailable", "MP3 conversion tests will be skipped"))
 
-    for key in ("WHISPER_CLI", "WHISPER_MODEL"):
+    for key in ("WHISPER_CLI", "WHISPER_MODEL", "WHISPER_VAD_MODEL"):
         raw = merged_env.get(key, "").strip()
         if not raw:
             results.append(_warn(f"env:{key}", "path is not configured"))

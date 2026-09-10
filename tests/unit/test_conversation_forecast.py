@@ -156,6 +156,33 @@ def test_english_stt_does_not_receive_japanese_forecast(monkeypatch):
     assert "日本語の秘密候補" not in prompt
 
 
+@pytest.mark.parametrize("observed", ["ごめん", "ごちそう", "ごおおお", "ねえ"])
+def test_stt_keeps_short_and_former_noise_words_after_generic_vad(monkeypatch, observed):
+    commands = []
+    monkeypatch.setattr(speech_module, "WHISPER_CLI", "whisper-fixture")
+    monkeypatch.setattr(speech_module.config, "WHISPER_MODEL", "ja-model")
+    monkeypatch.setattr(speech_module.config, "WHISPER_VAD_MODEL", "silero-vad-model")
+
+    def run(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(
+            returncode=0,
+            stdout=f"[00:00:00.000 --> 00:00:01.000] {observed}\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(speech_module.subprocess, "run", run)
+    assert speech_module.SpeechService().transcribe(b"RIFF" + b"\x00" * 64) == observed
+
+    command = commands[0]
+    assert "--vad" in command
+    assert command[command.index("--vad-model") + 1] == "silero-vad-model"
+    assert command[command.index("--vad-threshold") + 1] == "0.5"
+    assert command[command.index("--vad-min-speech-duration-ms") + 1] == "250"
+    assert command[command.index("--vad-min-silence-duration-ms") + 1] == "500"
+    assert command[command.index("--vad-speech-pad-ms") + 1] == "200"
+
+
 def test_forecast_module_has_no_memory_web_or_participation_policy_import():
     source = Path(forecast.__file__).read_text(encoding="utf-8")
     assert "memory_manager" not in source

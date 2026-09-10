@@ -291,16 +291,9 @@ def _build_voice_response(ai_response, user_text, speaker, speaker_label, genera
 
 
 def process_chat(user_text, speaker="master", generate_voice_flag=False, speaker_label=None):
-    NOISE_PATTERNS = ["ごちそう"]  # 誤認識しやすいワード
     print(f"[USER = {speaker}] {mask_names(user_text)[:80]}")
     member_data = load_member_data()
     master_label = MASTER_MASK_LABEL
-
-    if user_text.strip() in NOISE_PATTERNS:
-        ai_response = get_pc_cache_text("noise_check", "なんの音？")
-        return _build_voice_response(
-            ai_response, user_text, speaker, speaker_label, generate_voice_flag, master_label
-        )
     # チャットを処理
     if any(kw in user_text for kw in ["イングリッシュモード", "イングイッシュモード", "英語モード", "えいごもーど"]):
         set_english_mode(True)

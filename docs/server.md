@@ -157,9 +157,15 @@ KOKORO_VOICE_ENGLISH=af_sarah
 WHISPER_CLI=
 WHISPER_MODEL=
 WHISPER_MODEL_EN=
+WHISPER_VAD_MODEL=
+WHISPER_VAD_THRESHOLD=0.5
+WHISPER_VAD_MIN_SPEECH_MS=250
+WHISPER_VAD_MIN_SILENCE_MS=500
+WHISPER_VAD_SPEECH_PAD_MS=200
 ```
 
 `WHISPER_CLI` に `whisper.cpp` の実行ファイル、`WHISPER_MODEL` / `WHISPER_MODEL_EN` にモデルファイルを設定します。
+`WHISPER_VAD_MODEL` には whisper.cpp 用の Silero VAD モデルを指定します。未設定時は従来の Whisper 無音判定だけを使い、ログに VAD 無効を明示します。短文や特定の誤認識語を文字列で除外する処理は行いません。
 
 ## 5. 起動
 
