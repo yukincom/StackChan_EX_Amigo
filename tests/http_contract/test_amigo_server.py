@@ -8,6 +8,7 @@ import pytest
 import app as app_module
 import ai_handler
 import openai_compat_routes
+from services.conversation_event_service import conversation_event_store
 
 
 def test_firmware_multipart_stt_contract(monkeypatch):
@@ -183,6 +184,112 @@ def test_chat_backend_failure_is_visible(monkeypatch):
     )
     assert response.status_code == 500
     assert response.get_json()["error"]["type"] == "server_error"
+
+
+def _conversation_event(event_type, event_id, **extra):
+    return {
+        "schema_version": 1,
+        "session_id": "device-lab-session",
+        "event_id": event_id,
+        "type": event_type,
+        **extra,
+    }
+
+
+def test_continuous_conversation_device_round_trip_is_idempotent(monkeypatch):
+    conversation_event_store.clear()
+    calls = []
+    monkeypatch.setattr(
+        openai_compat_routes,
+        "resolve_speaker_context",
+        lambda text: ("master", "[マスター]"),
+    )
+
+    def fake_chat(text, **kwargs):
+        calls.append((text, kwargs))
+        return {"success": True, "response": "聞こえたよ", "error": None}
+
+    monkeypatch.setattr(openai_compat_routes, "process_chat", fake_chat)
+    client = app_module.create_app({"TESTING": True}).test_client()
+
+    started = client.post(
+        "/v1/conversation/events", json=_conversation_event("start", "event-start"),
+    )
+    assert started.status_code == 200
+    assert started.get_json()["action"] == "listen"
+
+    speech = _conversation_event("speech", "event-speech", text="こんにちは")
+    first = client.post("/v1/conversation/events", json=speech)
+    retried = client.post("/v1/conversation/events", json=speech)
+    assert first.status_code == retried.status_code == 200
+    assert first.get_json() == retried.get_json()
+    assert first.get_json()["action"] == "reply"
+    assert first.get_json()["reply"]["text"] == "聞こえたよ"
+    assert first.get_json()["reason"] == "first_input"
+    assert len(calls) == 1
+
+    reply_id = first.get_json()["reply"]["id"]
+    completed = client.post(
+        "/v1/conversation/events",
+        json=_conversation_event("playback_completed", "event-played", reply_id=reply_id),
+    )
+    assert completed.status_code == 200
+    assert completed.get_json()["action"] == "listen"
+
+    stopped = client.post(
+        "/v1/conversation/events", json=_conversation_event("stop", "event-stop"),
+    )
+    assert stopped.status_code == 200
+    assert stopped.get_json()["state"] == "closed"
+
+
+def test_continuous_conversation_requires_start_and_matching_playback(monkeypatch):
+    conversation_event_store.clear()
+    client = app_module.create_app({"TESTING": True}).test_client()
+
+    missing = client.post(
+        "/v1/conversation/events",
+        json=_conversation_event("speech", "event-before-start", text="もしもし"),
+    )
+    assert missing.status_code == 409
+    assert missing.get_json()["error"]["message"] == "session_not_started"
+
+    client.post("/v1/conversation/events", json=_conversation_event("start", "event-start"))
+    monkeypatch.setattr(openai_compat_routes, "resolve_speaker_context", lambda text: ("master", ""))
+    monkeypatch.setattr(
+        openai_compat_routes,
+        "process_chat",
+        lambda *args, **kwargs: {"success": True, "response": "はい", "error": None},
+    )
+    reply = client.post(
+        "/v1/conversation/events",
+        json=_conversation_event("speech", "event-speech", text="聞こえる？"),
+    )
+    assert reply.status_code == 200
+
+    mismatch = client.post(
+        "/v1/conversation/events",
+        json=_conversation_event("playback_completed", "event-played", reply_id="different"),
+    )
+    assert mismatch.status_code == 409
+
+
+def test_continuous_conversation_validates_shape_and_size():
+    conversation_event_store.clear()
+    client = app_module.create_app({"TESTING": True}).test_client()
+
+    invalid = client.post(
+        "/v1/conversation/events",
+        json={"schema_version": 1, "session_id": "s", "event_id": "e", "type": "speech"},
+    )
+    assert invalid.status_code == 400
+
+    oversized = client.post(
+        "/v1/conversation/events",
+        data=b"{" + b" " * (8 * 1024) + b"}",
+        content_type="application/json",
+    )
+    assert oversized.status_code == 413
 
 
 def test_vision_queue_full_returns_429(monkeypatch):

@@ -21,6 +21,12 @@ from services.chat_service import (
     resolve_speaker_context,
     schedule_conversation_forecast,
 )
+from services.conversation_event_service import (
+    MAX_BODY_BYTES as CONVERSATION_EVENT_MAX_BODY_BYTES,
+    EventConflictError,
+    EventContractError,
+    conversation_event_store,
+)
 from services.openai_function_service import (
     build_function_call_message,
     decide_function_call,
@@ -290,6 +296,38 @@ def transcriptions():
             return jsonify({"error": {"message": "No speech detected", "type": "invalid_request_error"}}), 400
 
         return jsonify({"text": transcript})
+    except Exception as exc:
+        return jsonify({"error": {"message": str(exc), "type": "server_error"}}), 500
+
+
+@openai_bp.route("/v1/conversation/events", methods=["POST"])
+def conversation_events():
+    """Device event ingress for an active continuous-conversation session."""
+    if request.content_length is not None and request.content_length > CONVERSATION_EVENT_MAX_BODY_BYTES:
+        return jsonify({"error": {"message": "conversation event too large", "type": "invalid_request_error"}}), 413
+
+    try:
+        data = request.get_json(force=True, silent=False)
+
+        def build_reply(text: str) -> dict:
+            speaker, speaker_label = resolve_speaker_context(text)
+            result = process_chat(
+                text,
+                speaker=speaker,
+                generate_voice_flag=False,
+                speaker_label=speaker_label,
+            )
+            stackchan_action = _build_stackchan_action(result)
+            if stackchan_action is not None:
+                result = dict(result)
+                result["stackchan_action"] = stackchan_action
+            return result
+
+        return jsonify(conversation_event_store.handle(data, build_reply))
+    except EventContractError as exc:
+        return jsonify({"error": {"message": str(exc), "type": "invalid_request_error"}}), 400
+    except EventConflictError as exc:
+        return jsonify({"error": {"message": str(exc), "type": "conflict_error"}}), 409
     except Exception as exc:
         return jsonify({"error": {"message": str(exc), "type": "server_error"}}), 500
 
