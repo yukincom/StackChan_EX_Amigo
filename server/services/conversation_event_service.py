@@ -20,6 +20,7 @@ SCHEMA_VERSION = 1
 MAX_BODY_BYTES = 8 * 1024
 MAX_ID_CHARS = 64
 MAX_TEXT_CHARS = 1000
+MAX_REPLY_CHARS = 500
 MAX_SESSIONS = 8
 MAX_EVENTS_PER_SESSION = 32
 EVENT_TYPES = {"start", "stop", "face_touch", "speech", "playback_completed"}
@@ -63,6 +64,17 @@ def _required_id(payload: dict, key: str) -> str:
 
 def _fingerprint(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _clip_reply(text: str) -> str:
+    """Match the existing voice-server boundary before building device JSON."""
+    text = text.strip()
+    if len(text) <= MAX_REPLY_CHARS:
+        return text
+    for index in range(MAX_REPLY_CHARS - 1, -1, -1):
+        if text[index] in "。！？!?":
+            return text[:index + 1]
+    return text[:MAX_REPLY_CHARS]
 
 
 class ConversationEventStore:
@@ -189,9 +201,10 @@ class ConversationEventStore:
                     if not isinstance(result, dict) or not result.get("success"):
                         error = result.get("error") if isinstance(result, dict) else None
                         raise RuntimeError(str(error or "chat backend failed"))
-                    reply_text = result.get("response")
-                    if not isinstance(reply_text, str) or not reply_text.strip():
+                    raw_reply_text = result.get("response")
+                    if not isinstance(raw_reply_text, str) or not raw_reply_text.strip():
                         raise RuntimeError("chat backend returned an empty reply")
+                    reply_text = _clip_reply(raw_reply_text)
                     reply_id = str(uuid.uuid4())
                     session.pending_reply_id = reply_id
                     session.accept_next = False

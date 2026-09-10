@@ -292,6 +292,24 @@ def test_continuous_conversation_validates_shape_and_size():
     assert oversized.status_code == 413
 
 
+def test_continuous_conversation_clips_device_reply_at_voice_boundary(monkeypatch):
+    conversation_event_store.clear()
+    monkeypatch.setattr(openai_compat_routes, "resolve_speaker_context", lambda text: ("master", ""))
+    monkeypatch.setattr(
+        openai_compat_routes,
+        "process_chat",
+        lambda *args, **kwargs: {"success": True, "response": "あ" * 600, "error": None},
+    )
+    client = app_module.create_app({"TESTING": True}).test_client()
+    client.post("/v1/conversation/events", json=_conversation_event("start", "event-start"))
+    response = client.post(
+        "/v1/conversation/events",
+        json=_conversation_event("speech", "event-speech", text="長い返答を試す"),
+    )
+    assert response.status_code == 200
+    assert len(response.get_json()["reply"]["text"]) == 500
+
+
 def test_vision_queue_full_returns_429(monkeypatch):
     lab_queue = queue.Queue(maxsize=1)
     monkeypatch.setattr(app_module, "_VISION_QUEUE", lab_queue)
