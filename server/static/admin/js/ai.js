@@ -26,8 +26,7 @@ async function saveAiEnv() {
       toast('✅ 保存しました（サーバー再起動で反映）');
       const status = document.getElementById('search-save-status');
       if (status) status.textContent = '保存済み。サーバー再起動後に反映されます。';
-    }
-    else toast('❌ 保存失敗: ' + data.error, 'err');
+    } else toast('❌ 保存失敗: ' + data.error, 'err');
   } catch(e) { toast('❌ 通信エラー: ' + e.message, 'err'); }
 }
 

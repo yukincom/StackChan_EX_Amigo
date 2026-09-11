@@ -97,12 +97,28 @@ def _record_vision_failure(memory: RobotMemory, label: str, transcript: str, rea
     )
 
 
-def _push_vision_error_message(message: str) -> bool:
+def _push_vision_error_message(
+    message: str,
+    *,
+    session_id: str | None = None,
+    action_id: str | None = None,
+) -> bool:
     voice_result = generate_voice_mixed(message)
     if not voice_result or not voice_result.get("source_url"):
         logger.warning("[VISION] failed to generate fallback error voice")
         return False
-    return push_to_m5stack(voice_result["source_url"], fire_and_forget=False)
+    correlation = {}
+    if session_id is not None and action_id is not None:
+        correlation = {
+            "session_id": session_id,
+            "action_id": action_id,
+            "action_status": "failed",
+        }
+    return push_to_m5stack(
+        voice_result["source_url"],
+        fire_and_forget=False,
+        **correlation,
+    )
 
 
 def handle_vision_upload(
@@ -111,7 +127,10 @@ def handle_vision_upload(
     transcript: str,    # 発話テキスト（"見て！"など）
     speaker: str = "master",
     speaker_label: str = "",
+    *,
     capture_mode: str | None = None,
+    session_id: str | None = None,
+    action_id: str | None = None,
 ) -> dict:
     """
     M5Stackから受信した画像を処理してTTS応答を生成。
@@ -151,7 +170,11 @@ def handle_vision_upload(
 
         if not vlm_desc:
             logger.warning("[VISION] VLM analysis failed")
-            pushed = _push_vision_error_message(VISION_USER_ERROR_MESSAGE)
+            pushed = _push_vision_error_message(
+                VISION_USER_ERROR_MESSAGE,
+                session_id=session_id,
+                action_id=action_id,
+            )
             logger.info("[VISION] fallback_error_voice pushed=%s", pushed)
             _record_vision_failure(memory, request_label, transcript, "VLM analysis failed")
             return {"success": False, "error": "VLM analysis failed", "user_message": VISION_USER_ERROR_MESSAGE}
@@ -190,8 +213,7 @@ def handle_vision_upload(
         print(f"[AI-VISION] ({len(ai_response)}文字): {mask_names(ai_response)}")
 
         if capture_mode is None:
-            # Old firmware did not send mode. Preserve that behavior until
-            # the batched firmware update is explicitly flashed by the user.
+            # Old firmware did not send mode.  Preserve its keyword behavior.
             archive_requested = _contains_any_keyword(transcript, config.VISION_ARCHIVE_KEYWORDS)
             transient_requested = _contains_any_keyword(transcript, config.VISION_TRANSIENT_KEYWORDS)
         else:
@@ -228,7 +250,18 @@ def handle_vision_upload(
         voice_result = generate_voice_mixed(ai_response)
         if voice_result and voice_result.get("source_url"):
             voice_url = voice_result["source_url"]
-            pushed = push_to_m5stack(voice_url, fire_and_forget=False)
+            correlation = {}
+            if session_id is not None and action_id is not None:
+                correlation = {
+                    "session_id": session_id,
+                    "action_id": action_id,
+                    "action_status": "succeeded",
+                }
+            pushed = push_to_m5stack(
+                voice_url,
+                fire_and_forget=False,
+                **correlation,
+            )
             logger.info("[VISION] voice_url=%s pushed=%s", voice_url, pushed)
             if not pushed:
                 logger.warning("[VISION] push failed after voice generation")
@@ -236,7 +269,11 @@ def handle_vision_upload(
                 return {"success": False, "error": "push failed", "user_message": VISION_USER_ERROR_MESSAGE}
         else:
             logger.warning("[VISION] voice generation failed (empty source_url)")
-            pushed = _push_vision_error_message(VISION_USER_ERROR_MESSAGE)
+            pushed = _push_vision_error_message(
+                VISION_USER_ERROR_MESSAGE,
+                session_id=session_id,
+                action_id=action_id,
+            )
             logger.info("[VISION] fallback_error_voice pushed=%s", pushed)
             _record_vision_failure(memory, request_label, transcript, "voice generation failed")
             return {"success": False, "error": "voice generation failed", "user_message": VISION_USER_ERROR_MESSAGE}
@@ -252,7 +289,11 @@ def handle_vision_upload(
             exc_info=True,
         )
         try:
-            _push_vision_error_message(VISION_USER_ERROR_MESSAGE)
+            _push_vision_error_message(
+                VISION_USER_ERROR_MESSAGE,
+                session_id=session_id,
+                action_id=action_id,
+            )
         except Exception:
             logger.exception("[VISION] fallback push also failed")
         return {"success": False, "error": str(e), "user_message": VISION_USER_ERROR_MESSAGE}

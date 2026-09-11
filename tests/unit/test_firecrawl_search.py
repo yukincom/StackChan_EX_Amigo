@@ -5,13 +5,14 @@ import sys
 import types
 from unittest.mock import MagicMock
 
+from dotenv import dotenv_values
+from flask import Flask
 import pytest
 import requests
-from flask import Flask
-from dotenv import dotenv_values
+
 
 ROOT = Path(__file__).resolve().parents[2]
-SERVER = ROOT / "server" if (ROOT / "server").is_dir() else ROOT
+SERVER = ROOT / "server"
 
 
 def load(name, path):
@@ -91,21 +92,16 @@ def test_timeout_redacted(adapter, monkeypatch):
 
 @pytest.fixture
 def modules(monkeypatch, tmp_path, adapter):
-    cfg = types.SimpleNamespace(AI_PROVIDER="mlx", AI_SEARCH_PROVIDER="gemini",
+    cfg = types.SimpleNamespace(
+        AI_PROVIDER="mlx", AI_CHAT_MODEL="chat-test", AI_SEARCH_PROVIDER="gemini",
         AI_SEARCH_MODEL="gemini-test", AI_SEARCH_TEMPERATURE=0.3,
-        ENV_DIR=str(tmp_path), JSON_DIR=str(tmp_path), ADMIN_TOKEN="")
+        ENV_DIR=str(tmp_path), JSON_DIR=str(tmp_path), ADMIN_TOKEN="",
+    )
     fake = types.ModuleType("config")
     fake.config = cfg
     monkeypatch.setitem(sys.modules, "config", fake)
     monkeypatch.syspath_prepend(str(SERVER))
     monkeypatch.setitem(sys.modules, "services.firecrawl_search", adapter)
-    # Household imports optional SDKs eagerly. Do not load models or real dotenv.
-    monkeypatch.setitem(sys.modules, "dotenv", types.SimpleNamespace(load_dotenv=lambda *a, **k: None))
-    monkeypatch.setitem(sys.modules, "google", types.SimpleNamespace(genai=MagicMock()))
-    monkeypatch.setitem(sys.modules, "google.genai", types.SimpleNamespace(types=MagicMock()))
-    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=MagicMock()))
-    monkeypatch.setitem(sys.modules, "huggingface_hub", types.SimpleNamespace(
-        try_to_load_from_cache=MagicMock(), snapshot_download=MagicMock(), _CACHED_NO_EXIST=object()))
     catalog = types.ModuleType("services.voice_cache_catalog")
     for name in ("generate_mp3_file", "get_pc_cache_audio_path", "get_stack_sd_audio_path", "load_catalog", "save_catalog"):
         setattr(catalog, name, MagicMock())
@@ -137,6 +133,27 @@ def test_provider_dispatch(modules, adapter, monkeypatch):
         client.call_search("prompt", query="q")
 
 
+@pytest.mark.parametrize("provider, backend_name, search_flag", [
+    ("gemini", "_call_gemini", False),
+    ("mlx", "_call_mlx", None),
+    ("openai", "_call_openai_compatible", None),
+])
+def test_structured_generation_uses_chat_model_and_bounded_output(
+    modules, monkeypatch, provider, backend_name, search_flag,
+):
+    cfg, client, _ = modules
+    cfg.AI_PROVIDER = provider
+    backend = MagicMock(return_value="structured answer")
+    monkeypatch.setattr(client, backend_name, backend)
+
+    assert client.call_structured("forecast", temperature=0.2, max_tokens=123) == "structured answer"
+    assert backend.call_args.kwargs["model"] == "chat-test"
+    assert backend.call_args.kwargs["temperature"] == 0.2
+    assert backend.call_args.kwargs["max_tokens"] == 123
+    if search_flag is not None:
+        assert backend.call_args.kwargs["use_search"] is search_flag
+
+
 def test_settings_save_mask_and_preserve(modules, monkeypatch, tmp_path):
     _, _, admin = modules
     app = Flask(__name__)
@@ -148,14 +165,22 @@ def test_settings_save_mask_and_preserve(modules, monkeypatch, tmp_path):
     assert items["FIRECRAWL_API_KEY"]["value"] == ""
     assert items["FIRECRAWL_API_KEY"]["is_set"] is True
     assert items["AI_SEARCH_PROVIDER"]["options"] == ["gemini:Gemini / Google検索", "firecrawl:Firecrawl"]
-    saved = client.post("/admin/api/ai_env", json={"AI_SEARCH_PROVIDER": "firecrawl", "FIRECRAWL_API_KEY": "fc-new-test"})
+    saved = client.post("/admin/api/ai_env", json={
+        "AI_SEARCH_PROVIDER": "firecrawl", "FIRECRAWL_API_KEY": "fc-new-test",
+    })
     assert saved.status_code == 200 and saved.json["ok"]
     assert "fc-new-test" not in saved.get_data(as_text=True)
-    assert client.post("/admin/api/ai_env", json={"FIRECRAWL_API_KEY": "", "AI_SEARCH_PROVIDER": "gemini"}).status_code == 200
+    assert client.post("/admin/api/ai_env", json={
+        "FIRECRAWL_API_KEY": "", "AI_SEARCH_PROVIDER": "gemini",
+    }).status_code == 200
     values = dotenv_values(tmp_path / ".env.local")
     assert values["FIRECRAWL_API_KEY"] == "fc-new-test"
     assert values["AI_SEARCH_PROVIDER"] == "gemini"
     before = (tmp_path / ".env.local").read_text()
-    for bad in ({"AI_SEARCH_PROVIDER": "bogus"}, {"FIRECRAWL_API_KEY": "x\nOTHER=value"}):
+    for bad in (
+        {"AI_SEARCH_PROVIDER": "bogus"},
+        {"FIRECRAWL_API_KEY": "x\nOTHER=value"},
+        {"CONVERSATION_FORECAST_ENABLED": "sometimes"},
+    ):
         assert client.post("/admin/api/ai_env", json=bad).status_code == 400
     assert (tmp_path / ".env.local").read_text() == before

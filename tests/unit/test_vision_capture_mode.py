@@ -44,9 +44,18 @@ def test_capture_mode_controls_archive_and_preserves_camera_conversation(
     monkeypatch.setattr(vision_handler, "generate_voice_mixed", lambda text: {
         "source_url": "http://127.0.0.1/fixture.wav",
     })
-    monkeypatch.setattr(vision_handler, "push_to_m5stack", lambda url, **kw: pushed.append(url) or True)
+    monkeypatch.setattr(
+        vision_handler,
+        "push_to_m5stack",
+        lambda url, **kwargs: pushed.append((url, kwargs)) or True,
+    )
 
-    result = vision_handler.handle_vision_upload(image, "user", transcript, capture_mode=mode)
+    result = vision_handler.handle_vision_upload(
+        image,
+        "user",
+        transcript,
+        capture_mode=mode,
+    )
 
     assert result["success"] is True
     assert list(temporary.iterdir()) == []
@@ -56,7 +65,51 @@ def test_capture_mode_controls_archive_and_preserves_camera_conversation(
     if archived:
         assert images[0].read_bytes() == image
         assert json.loads(metadata[0].read_text())["transcript"] == transcript
-    # transient controls the image archive, not explicit camera conversation history.
+    # Capture mode controls the image archive, not camera conversation history.
     assert any(item["ai_response"] == "赤い積み木だね。" for item in conversations)
     assert sum(item["speaker_label"] == "資料保存" for item in conversations) == int(archived)
-    assert pushed == ["http://127.0.0.1/fixture.wav"]
+    assert pushed == [("http://127.0.0.1/fixture.wav", {"fire_and_forget": False})]
+
+
+def test_correlated_vision_push_carries_action_result(monkeypatch, tmp_path):
+    pushed = []
+
+    class Memory:
+        def add_conversation(self, **kwargs):
+            return None
+
+        def get_context(self, **kwargs):
+            return ""
+
+    monkeypatch.setattr(vision_handler, "VISION_TMP_DIR", tmp_path / "temporary")
+    monkeypatch.setattr(vision_handler, "RobotMemory", Memory)
+    monkeypatch.setattr(vision_handler, "analyze_image", lambda *a: "机")
+    monkeypatch.setattr(vision_handler, "get_ai_response", lambda **kw: "机が見えるよ。")
+    monkeypatch.setattr(vision_handler, "generate_voice_mixed", lambda text: {
+        "source_url": "http://127.0.0.1/fixture.wav",
+    })
+    monkeypatch.setattr(
+        vision_handler,
+        "push_to_m5stack",
+        lambda url, **kwargs: pushed.append((url, kwargs)) or True,
+    )
+
+    result = vision_handler.handle_vision_upload(
+        b"synthetic-image",
+        "user",
+        "見て",
+        capture_mode="transient",
+        session_id="camera-session",
+        action_id="camera-action",
+    )
+
+    assert result["success"] is True
+    assert pushed == [(
+        "http://127.0.0.1/fixture.wav",
+        {
+            "fire_and_forget": False,
+            "session_id": "camera-session",
+            "action_id": "camera-action",
+            "action_status": "succeeded",
+        },
+    )]

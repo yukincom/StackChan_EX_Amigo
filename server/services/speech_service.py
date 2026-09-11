@@ -4,9 +4,25 @@ import os
 
 import re
 from config import config
+from services import conversation_forecast
 
 WHISPER_CLI   = config.WHISPER_CLI
 WHISPER_MODEL = config.WHISPER_MODEL
+
+
+def _vad_arguments():
+    """Return the generic Silero gate used before Whisper transcription."""
+    vad_model = (config.WHISPER_VAD_MODEL or "").strip()
+    if not vad_model:
+        return []
+    return [
+        "--vad",
+        "--vad-model", vad_model,
+        "--vad-threshold", str(config.WHISPER_VAD_THRESHOLD),
+        "--vad-min-speech-duration-ms", str(config.WHISPER_VAD_MIN_SPEECH_MS),
+        "--vad-min-silence-duration-ms", str(config.WHISPER_VAD_MIN_SILENCE_MS),
+        "--vad-speech-pad-ms", str(config.WHISPER_VAD_SPEECH_PAD_MS),
+    ]
 
 class SpeechService:
     """whisper.cpp ラッパー"""
@@ -40,7 +56,7 @@ class SpeechService:
                 stt_profile = "EN"
             else:
                 model = ja_model
-                prompt = "日本語の日常会話です。"
+                prompt = conversation_forecast.decorate_stt_prompt("日本語の日常会話です。")
                 stt_profile = "JA"
                 if use_english_model and not en_model:
                     print(
@@ -56,15 +72,22 @@ class SpeechService:
                 f"model={model!r}"
             )
 
+            command = [
+                WHISPER_CLI,
+                "-m", model,
+                "-f", tmp_16k,
+                "-l", lang,
+                "--prompt", prompt,
+                "--no-speech-thold", str(config.WHISPER_NO_SPEECH_THOLD),
+            ]
+            vad_arguments = _vad_arguments()
+            if vad_arguments:
+                command.extend(vad_arguments)
+            else:
+                print("[SPEECH] Silero VAD disabled: WHISPER_VAD_MODEL is empty")
+
             result = subprocess.run(
-                [
-                    WHISPER_CLI,
-                    "-m", model,
-                    "-f", tmp_16k,
-                    "-l", lang,
-                    "--prompt", prompt,
-                    "--no-speech-thold", str(config.WHISPER_NO_SPEECH_THOLD),
-                ],
+                command,
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -91,23 +114,6 @@ class SpeechService:
             if not transcript:
                 print(f"[SPEECH] No speech detected profile={stt_profile} lang={lang}")
                 return None
-
-            # 許可リスト
-            ALLOW_SHORT = [config.ASSISTANT_NAME] + config.SPEECH_ALLOW_SHORT
-            # ノイズパターン（トイレ・水音・背景音の誤認識）
-            NOISE_PATTERNS = ["ごおおお", "ごーーー", "ざーーー", "うおおお"]
-            EXACT_NOISE_PATTERNS = ["ごちそう"]
-
-            if any(noise in transcript for noise in NOISE_PATTERNS):
-                print(f"[SPEECH] Noise detected profile={stt_profile}, ignoring: '{transcript}'")
-                return None
-            if transcript.strip() in EXACT_NOISE_PATTERNS:
-                print(f"[SPEECH] Exact noise detected profile={stt_profile}, ignoring: '{transcript.strip()}'")
-                return None
-            if len(transcript.strip()) <= 3:
-                if transcript.strip() not in ALLOW_SHORT:
-                    print(f"[SPEECH] Too short profile={stt_profile}, ignoring: '{transcript.strip()}'")
-                    return None
 
             print(f"[SPEECH] ok profile={stt_profile} lang={lang} text={transcript!r}")
             return transcript

@@ -7,6 +7,10 @@ import pytest
 
 import app as app_module
 from operation_journal import OperationJournal
+from services.conversation_event_service import (
+    conversation_event_store,
+    materialize_device_action,
+)
 
 
 def _install_isolated_journal(monkeypatch, tmp_path, *, queue_size=2):
@@ -58,14 +62,14 @@ def test_vision_worker_completes_journal_and_removes_private_spool(monkeypatch, 
     )
     seen = {}
 
-    def fake_handle(image, requester, transcript, speaker, speaker_label, *, capture_mode):
+    def fake_handle(image, requester, transcript, speaker, speaker_label, **kwargs):
         seen.update({
             "image": image,
             "requester": requester,
             "transcript": transcript,
             "speaker": speaker,
             "speaker_label": speaker_label,
-            "capture_mode": capture_mode,
+            **kwargs,
         })
         return {"success": True}
 
@@ -75,6 +79,8 @@ def test_vision_worker_completes_journal_and_removes_private_spool(monkeypatch, 
     assert seen["image"] == b"J" * 600
     assert seen["transcript"] == "fixture"
     assert seen["capture_mode"] == capture_mode
+    assert seen["session_id"] is None
+    assert seen["action_id"] is None
     assert journal.latest()[operation["op_id"]]["state"] == "succeeded"
     assert not (journal.spool_dir / operation["op_id"]).exists()
 
@@ -90,3 +96,57 @@ def test_queue_full_records_rejection_and_removes_payload(monkeypatch, tmp_path)
     rejected = [record for record in journal.latest().values() if record["state"] == "rejected"]
     assert len(rejected) == 1
     assert not (journal.spool_dir / rejected[0]["op_id"]).exists()
+
+
+def test_correlated_vision_acceptance_requires_pending_camera_action(monkeypatch, tmp_path):
+    journal = _install_isolated_journal(monkeypatch, tmp_path)
+    conversation_event_store.clear()
+    touch = {
+        "action_schema_version": 2,
+        "session_id": "camera-session",
+        "event_id": "touch-event",
+    }
+    request_payload = {"stackchan_device": touch, "messages": []}
+    reservation, _ = conversation_event_store.reserve_touch_request(touch, request_payload)
+    action = materialize_device_action({
+        "type": "camera_capture",
+        "camera_mode": "archive",
+        "camera_requester": "user",
+        "transcript": "保存して",
+        "speaker": "master",
+        "speaker_label": "",
+        "announce_endpoint": "vision_ai_trigger",
+    })
+    conversation_event_store.complete_touch_request(
+        reservation,
+        {"fixture": True},
+        device_action=action,
+    )
+
+    client = app_module.create_app({"TESTING": True}).test_client()
+    response = client.post(
+        "/vision/upload"
+        f"?mode=archive&session_id=camera-session&action_id={action['action_id']}",
+        data=b"J" * 600,
+        content_type="image/jpeg",
+    )
+    assert response.status_code == 200
+    op_id = response.get_json()["operation_id"]
+    request_data = json.loads(journal.load_payload(op_id, "request.json"))
+    assert request_data["mode"] == "archive"
+    assert request_data["session_id"] == "camera-session"
+    assert request_data["action_id"] == action["action_id"]
+
+    half = client.post(
+        "/vision/upload?session_id=camera-session",
+        data=b"J" * 600,
+    )
+    assert half.status_code == 400
+    assert half.get_json()["error"] == "invalid_action_correlation"
+
+    mismatch = client.post(
+        "/vision/upload?session_id=camera-session&action_id=wrong",
+        data=b"J" * 600,
+    )
+    assert mismatch.status_code == 409
+    assert mismatch.get_json()["code"] == "action_id_mismatch"

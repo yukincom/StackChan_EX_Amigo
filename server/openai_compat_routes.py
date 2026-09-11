@@ -16,7 +16,19 @@ from flask import Blueprint, Response, jsonify, request
 from config import config
 from member_loader import MASTER_MASK_LABEL, mask_names
 from memory_manager import RobotMemory
-from services.chat_service import process_chat, resolve_speaker_context
+from services.chat_service import (
+    process_chat,
+    resolve_speaker_context,
+    schedule_conversation_forecast,
+)
+from services.conversation_event_service import (
+    ACTION_SCHEMA_VERSION,
+    MAX_BODY_BYTES as CONVERSATION_EVENT_MAX_BODY_BYTES,
+    EventConflictError,
+    EventContractError,
+    conversation_event_store,
+    materialize_device_action,
+)
 from services.openai_function_service import (
     build_function_call_message,
     decide_function_call,
@@ -131,6 +143,24 @@ def _build_stackchan_action(result: dict) -> dict | None:
         "type": "camera_trigger",
         "camera_mode": str(result.get("camera_mode", "transient")).strip() or "transient",
         "camera_requester": str(result.get("camera_requester", "user")).strip() or "user",
+        "speaker": str(result.get("speaker", "master")).strip() or "master",
+        "speaker_label": str(result.get("speaker_label", "")).strip(),
+        "announce_endpoint": str(result.get("announce_endpoint", "")).strip(),
+    }
+
+
+def _build_v2_device_action(result: dict, transcript: str) -> dict | None:
+    """Translate existing chat results into the agreed firmware action schema."""
+    descriptor = result.get("device_action")
+    if isinstance(descriptor, dict):
+        return dict(descriptor)
+    if not result.get("camera_triggered"):
+        return None
+    return {
+        "type": "camera_capture",
+        "camera_mode": str(result.get("camera_mode", "transient")).strip() or "transient",
+        "camera_requester": str(result.get("camera_requester", "user")).strip() or "user",
+        "transcript": transcript.strip(),
         "speaker": str(result.get("speaker", "master")).strip() or "master",
         "speaker_label": str(result.get("speaker_label", "")).strip(),
         "announce_endpoint": str(result.get("announce_endpoint", "")).strip(),
@@ -290,9 +320,53 @@ def transcriptions():
         return jsonify({"error": {"message": str(exc), "type": "server_error"}}), 500
 
 
+@openai_bp.route("/v1/conversation/events", methods=["POST"])
+def conversation_events():
+    """Device event ingress for an active continuous-conversation session."""
+    if request.content_length is not None and request.content_length > CONVERSATION_EVENT_MAX_BODY_BYTES:
+        return jsonify({"error": {"message": "conversation event too large", "type": "invalid_request_error"}}), 413
+
+    try:
+        data = request.get_json(force=True, silent=False)
+
+        def build_reply(text: str) -> dict:
+            speaker, speaker_label = resolve_speaker_context(text)
+            action_capable = data.get("schema_version") == ACTION_SCHEMA_VERSION
+            result = process_chat(
+                text,
+                speaker=speaker,
+                generate_voice_flag=False,
+                speaker_label=speaker_label,
+                defer_device_actions=action_capable,
+            )
+            if action_capable:
+                device_action = _build_v2_device_action(result, text)
+                if device_action is not None:
+                    result = dict(result)
+                    result["device_action"] = device_action
+            else:
+                stackchan_action = _build_stackchan_action(result)
+                if stackchan_action is None:
+                    return result
+                result = dict(result)
+                result["stackchan_action"] = stackchan_action
+            return result
+
+        return jsonify(conversation_event_store.handle(data, build_reply))
+    except EventContractError as exc:
+        return jsonify({"error": {"message": str(exc), "type": "invalid_request_error"}}), 400
+    except EventConflictError as exc:
+        return jsonify({
+            "error": {"message": str(exc), "type": "conflict_error", "code": exc.code}
+        }), 409
+    except Exception as exc:
+        return jsonify({"error": {"message": str(exc), "type": "server_error"}}), 500
+
+
 @openai_bp.route("/v1/chat/completions", methods=["POST"])
 def chat_completions():
     """LLM: ChatGPT互換エンドポイント"""
+    touch_reservation = None
     try:
         data = request.get_json(force=True, silent=False) or {}
         messages = _normalize_messages(data.get("messages", []))
@@ -320,6 +394,7 @@ def chat_completions():
                     ai_response=response_text,
                     speaker_label=speaker_label,
                 )
+                schedule_conversation_forecast(user_text, response_text)
             if response_text:
                 print(f"[AI] ({len(response_text)}文字): {mask_names(response_text)}")
             model = data.get("model") or config.AI_CHAT_MODEL or "stackchan-chat"
@@ -371,14 +446,29 @@ def chat_completions():
                 }
             )
 
+        stackchan_device = data.get("stackchan_device")
+        if stackchan_device is not None:
+            touch_reservation, cached_response = conversation_event_store.reserve_touch_request(
+                stackchan_device,
+                data,
+            )
+            if cached_response is not None:
+                return jsonify(cached_response)
+
         result = process_chat(
             user_text,
             speaker=speaker,
             generate_voice_flag=False,
             speaker_label=speaker_label,
+            defer_device_actions=touch_reservation is not None,
         )
         response_text = result.get("response") if result.get("success") else "わかりません"
-        stackchan_action = _build_stackchan_action(result)
+        device_action = None
+        if touch_reservation is not None:
+            descriptor = _build_v2_device_action(result, user_text)
+            if descriptor is not None:
+                device_action = materialize_device_action(descriptor)
+        stackchan_action = _build_stackchan_action(result) if touch_reservation is None else None
         model = data.get("model") or config.AI_CHAT_MODEL or "stackchan-chat"
 
         payload = {
@@ -392,16 +482,42 @@ def chat_completions():
                     "finish_reason": "stop",
                     "message": {
                         "role": "assistant",
-                        "content": response_text,
+                        "content": "" if device_action is not None else response_text,
                     },
                 }
             ],
         }
-        if stackchan_action is not None:
+        if device_action is not None:
+            payload["stackchan_device"] = {
+                "action_schema_version": ACTION_SCHEMA_VERSION,
+                "session_id": touch_reservation.session_id,
+                "event_id": touch_reservation.event_id,
+                "action": "perform",
+                "device_action": device_action,
+            }
+        elif stackchan_action is not None:
             payload["stackchan_action"] = stackchan_action
 
+        if touch_reservation is not None:
+            payload = conversation_event_store.complete_touch_request(
+                touch_reservation,
+                payload,
+                device_action=device_action,
+            )
         return jsonify(payload)
+    except EventContractError as exc:
+        if touch_reservation is not None:
+            conversation_event_store.fail_touch_request(touch_reservation)
+        return jsonify({"error": {"message": str(exc), "type": "invalid_request_error"}}), 400
+    except EventConflictError as exc:
+        if touch_reservation is not None:
+            conversation_event_store.fail_touch_request(touch_reservation)
+        return jsonify({
+            "error": {"message": str(exc), "type": "conflict_error", "code": exc.code}
+        }), 409
     except Exception as exc:
+        if touch_reservation is not None:
+            conversation_event_store.fail_touch_request(touch_reservation)
         return jsonify({"error": {"message": str(exc), "type": "server_error"}}), 500
 
 

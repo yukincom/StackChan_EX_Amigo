@@ -8,6 +8,7 @@ import time
 import requests
 
 from config import config
+from services import conversation_forecast
 from ai_handler import (
     detect_intent,
     get_ai_response,
@@ -16,7 +17,7 @@ from ai_handler import (
     set_english_mode,
 )
 from services.voice_cache_catalog import get_pc_cache_text
-from services.voice_service import generate_voice_mixed, push_to_m5stack
+from services.voice_service import build_push_audio_url, generate_voice_mixed, push_to_m5stack
 from services.weather_service import get_weather_response
 from member_loader import (
     MASTER_MASK_LABEL,
@@ -252,6 +253,20 @@ def _ai_response_suggests_visual_check(ai_response: str) -> bool:
     return any(pattern in text for pattern in hint_patterns)
 
 
+def schedule_conversation_forecast(user_text: str, ai_response: str) -> None:
+    """Submit the selected pair without making forecasting part of reply success."""
+    if not user_text or not ai_response:
+        return
+    try:
+        conversation_forecast.schedule_forecast(
+            mask_names(user_text),
+            mask_names(ai_response),
+        )
+    except Exception as exc:
+        # Forecasting is optional STT context and must not fail the reply.
+        print(f"[FORECAST] scheduling_failed error={type(exc).__name__}")
+
+
 def _build_voice_response(ai_response, user_text, speaker, speaker_label, generate_voice_flag, default_label):
     """音声生成・M5Stackへpush・会話保存・レスポンス返却をまとめた共通処理"""
     memory = RobotMemory()
@@ -260,6 +275,7 @@ def _build_voice_response(ai_response, user_text, speaker, speaker_label, genera
 
     if ai_response:
         print(f"[AI] ({len(ai_response)}文字): {mask_names(ai_response)}")
+        schedule_conversation_forecast(user_text, ai_response)
 
     if generate_voice_flag and ai_response:
         voice_result = generate_voice_mixed(
@@ -274,17 +290,17 @@ def _build_voice_response(ai_response, user_text, speaker, speaker_label, genera
     return {"success": True, "response": ai_response, "error": None}
 
 
-def process_chat(user_text, speaker="master", generate_voice_flag=False, speaker_label=None):
-    NOISE_PATTERNS = ["ごちそう"]  # 誤認識しやすいワード
+def process_chat(
+    user_text,
+    speaker="master",
+    generate_voice_flag=False,
+    speaker_label=None,
+    *,
+    defer_device_actions=False,
+):
     print(f"[USER = {speaker}] {mask_names(user_text)[:80]}")
     member_data = load_member_data()
     master_label = MASTER_MASK_LABEL
-
-    if user_text.strip() in NOISE_PATTERNS:
-        ai_response = get_pc_cache_text("noise_check", "なんの音？")
-        return _build_voice_response(
-            ai_response, user_text, speaker, speaker_label, generate_voice_flag, master_label
-        )
     # チャットを処理
     if any(kw in user_text for kw in ["イングリッシュモード", "イングイッシュモード", "英語モード", "えいごもーど"]):
         set_english_mode(True)
@@ -370,6 +386,19 @@ def process_chat(user_text, speaker="master", generate_voice_flag=False, speaker
                 ai_response,
                 speaker_label=speaker_label if speaker_label else master_label,
             )
+
+            if defer_device_actions:
+                return {
+                    "success": True,
+                    "response": ai_response,
+                    "error": None,
+                    "device_action": {
+                        "type": "audio_playback",
+                        # /song serves WAV.  Keep the existing MP3 proxy because
+                        # the firmware action player uses the MP3 decoder.
+                        "audio_url": build_push_audio_url(song_url),
+                    },
+                }
 
             push_to_m5stack(song_url)
             return {"success": True, "response": ai_response, "error": None}

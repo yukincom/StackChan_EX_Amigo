@@ -84,6 +84,7 @@ cp -r server/json_example server/json
 
 - `whisper.cpp`
 - Japanese whisper model (`WHISPER_MODEL`)
+- Silero VAD model for whisper.cpp (`WHISPER_VAD_MODEL`)
 - `VOICEVOX`
 - `ffmpeg`
 - `kokoro`

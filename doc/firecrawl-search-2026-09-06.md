@@ -26,11 +26,9 @@ Firecrawlは外部のクレジット消費サービス。同じキーをHermes�
 
 ## 依存・検証
 
-- 新規SDK/依存の導入なし。既存requests 2.33.1はApache-2.0（インストール済み配布メタデータで確認）。HermesやFirecrawlサーバーのコードはコピーしていない。
-- 公開版: 全131件成功（localhost許可後）。最初のsandbox実行はbind制限による12失敗/119成功で、製品不具合とは区別。
-- 家庭用の分離worktree: unitテスト80件成功。両版の検索/UI API専用テストは各15件。
-- Gemini/Firecrawlの振分け、queryと回答promptの分離、認証/残量/制限/通信/不正応答、空結果、キーの非表示・保存・空欄維持、不正設定を確認。
-- UIは既存のselect/password描画に項目定義を追加。実ブラウザでの見た目、実キー検索、稼働サーバー再起動は未実施。
-- 本体コード変更/Flash/実運用反映なし。家庭用の実運用dirtyフォルダは変更しない。
+- 新規SDK/依存の導入なし。既存requestsを使う。HermesやFirecrawlサーバーのコードはコピーしていない。
+- Gemini/Firecrawlの振分け、queryと回答promptの分離、認証/残量/制限/通信/不正応答、空結果、キーの非表示・保存・空欄維持、不正設定を自動テストする。
+- UIは既存のselect/password描画を使い、選択中サービスと保存・再起動待ちを表示する。
+- 本体コード変更/Flashは不要。実キー検索と稼働サーバーへの反映は別途確認する。
 
 参照: [Search API](https://docs.firecrawl.dev/api-reference/endpoint/search)、[料金](https://www.firecrawl.dev/pricing)。

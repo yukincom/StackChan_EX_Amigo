@@ -12,6 +12,7 @@ import requests
 from config import config
 from observability import emit_trace, trace_context
 from operation_journal import JournalError, get_operation_journal
+from services.conversation_event_service import validate_wire_id
 
 
 _VOICE_DELIVERY_QUEUE: queue.Queue[str] = queue.Queue(maxsize=100)
@@ -19,6 +20,26 @@ _VOICE_DELIVERY_LOCK = threading.Lock()
 _VOICE_DELIVERY_QUEUED: set[str] = set()
 _VOICE_DELIVERY_WORKER_STARTED = False
 _VOICE_DELIVERY_WORKER: threading.Thread | None = None
+
+
+def _action_correlation_fields(
+    session_id: str | None,
+    action_id: str | None,
+    action_status: str | None,
+) -> dict[str, str]:
+    values = (session_id, action_id, action_status)
+    if all(value is None for value in values):
+        return {}
+    if any(value is None for value in values) or action_status not in {"succeeded", "failed"}:
+        raise ValueError("invalid action correlation")
+    try:
+        return {
+            "session_id": validate_wire_id(session_id, "session_id"),
+            "action_id": validate_wire_id(action_id, "action_id"),
+            "action_status": action_status,
+        }
+    except ValueError as exc:
+        raise ValueError("invalid action correlation") from exc
 
 
 def _server_base_url() -> str:
@@ -183,6 +204,11 @@ def _deliver_voice_operation(op_id: str) -> bool:
         delay_ms = int(request_data.get("delay_ms", 0))
         if not voice_url or not 0 <= delay_ms <= 30_000:
             raise JournalError("private voice request is invalid")
+        correlation = _action_correlation_fields(
+            request_data.get("session_id"),
+            request_data.get("action_id"),
+            request_data.get("action_status"),
+        )
     except (KeyError, TypeError, ValueError, json.JSONDecodeError, UnicodeDecodeError, JournalError):
         journal.transition(op_id, "failed", owner="worker", stage="error")
         return False
@@ -192,9 +218,11 @@ def _deliver_voice_operation(op_id: str) -> bool:
         if delay_ms:
             time.sleep(delay_ms / 1000)
         with trace_context(op_id):
+            play_payload = {"voice_url": build_push_audio_url(voice_url)}
+            play_payload.update(correlation)
             response = requests.post(
                 f"http://{config.M5STACK_IP}:{config.M5STACK_PORT}/play",
-                json={"voice_url": build_push_audio_url(voice_url)},
+                json=play_payload,
                 timeout=30,
             )
             response.raise_for_status()
@@ -270,11 +298,24 @@ def push_to_m5stack(
     fire_and_forget: bool = True,
     *,
     idempotency_key: str | None = None,
+    session_id: str | None = None,
+    action_id: str | None = None,
+    action_status: str | None = None,
 ) -> bool:
     """Persist a playback request before asynchronous or synchronous delivery."""
     try:
+        request_fields = {
+            "voice_url": voice_url,
+            "delay_ms": 0,
+        }
+        request_fields.update(_action_correlation_fields(session_id, action_id, action_status))
         private_request = json.dumps(
-            {"voice_url": voice_url, "delay_ms": 1500 if fire_and_forget else 0},
+            # Async dispatch must not impose an unconditional startup wait.
+            # Keep delay_ms=0 in new records; the reader still accepts legacy
+            # persisted delays without rewriting already-accepted operations.
+            # 復旧用: 固定1.5秒待ちが必要なら次行を戻し、delay_ms=0の行と置き換える。
+            # {"voice_url": voice_url, "delay_ms": 1500 if fire_and_forget else 0},
+            request_fields,
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")

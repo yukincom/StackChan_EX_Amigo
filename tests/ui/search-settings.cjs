@@ -1,4 +1,4 @@
-// Run with the existing Playwright runtime; no server, secrets or external I/O.
+// Existing Playwright runtime; no server, secrets, or external I/O.
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');

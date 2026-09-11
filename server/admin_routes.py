@@ -289,9 +289,13 @@ ENV_GROUPS = [
             {"key": "",                        "label": "",                 "type": "empty"},
             {"key": "WHISPER_MODEL",           "label": "日本語モデルパス", "type": "text"},
             {"key": "WHISPER_MODEL_EN",        "label": "英語モデルパス",   "type": "text"},
+            {"key": "WHISPER_VAD_MODEL",       "label": "Silero VADモデルパス", "type": "text"},
             {"key": "WHISPER_NO_SPEECH_THOLD", "label": "無音判定しきい値", "type": "number"},
+            {"key": "WHISPER_VAD_THRESHOLD",   "label": "VADしきい値",       "type": "number"},
+            {"key": "WHISPER_VAD_MIN_SPEECH_MS",  "label": "VAD最小発話時間(ms)", "type": "number"},
+            {"key": "WHISPER_VAD_MIN_SILENCE_MS", "label": "VAD最小無音時間(ms)", "type": "number"},
+            {"key": "WHISPER_VAD_SPEECH_PAD_MS",  "label": "VAD発話余白(ms)",     "type": "number"},
             {"key": "SPEECH_MIN_BYTES",        "label": "最小音声バイト数", "type": "number"},
-            {"key": "SPEECH_ALLOW_SHORT",      "label": "短文許可ワード（カンマ区切り）", "type": "text"},
             {"key": "",                        "label": "",                 "type": "empty"},
         ]
     },
@@ -416,6 +420,8 @@ AI_ENV_GROUPS = [
             {"key": "AI_MAX_OUTPUT_TOKENS",   "label": "最大出力トークン数",                        "type": "number"},
             {"key": "AI_RECENT_TURNS",        "label": "通常会話の記憶ターン数（推奨：10未満）",      "type": "number"},
             {"key": "AI_SEARCH_RECENT_TURNS", "label": "Gemini検索の総ターン数（Firecrawlへの検索語は今回の入力のみ）", "type": "number", "default": "1"},
+            {"key": "CONVERSATION_FORECAST_ENABLED", "label": "次発話予測によるSTT補助", "type": "select", "default": "true",
+             "options": ["true:有効", "false:無効"]},
             {"key": "AI_CHAT_TEMPERATURE",    "label": "会話 Temperature（豊かさ・デフォルト 0.8）", "type": "number"},
             {"key": "AI_SUMMARY_TEMPERATURE", "label": "要約 Temperature（正確さ・デフォルト 0.3）", "type": "number"},
             {"key": "AI_SEARCH_TEMPERATURE",  "label": "検索 Temperature（正確さ・デフォルト 0.3）", "type": "number"},
@@ -577,6 +583,11 @@ def save_ai_env():
             if provider not in ("gemini", "firecrawl"):
                 return jsonify({"ok": False, "error": "検索サービスの選択が不正です"}), 400
             updates["AI_SEARCH_PROVIDER"] = provider
+        if "CONVERSATION_FORECAST_ENABLED" in updates:
+            enabled = updates["CONVERSATION_FORECAST_ENABLED"].strip().lower()
+            if enabled not in ("true", "false"):
+                return jsonify({"ok": False, "error": "次発話予測の設定が不正です"}), 400
+            updates["CONVERSATION_FORECAST_ENABLED"] = enabled
         key = updates.get("FIRECRAWL_API_KEY", "")
         if any(c.isspace() for c in key):
             return jsonify({"ok": False, "error": "Firecrawl APIキーに空白や改行は使えません"}), 400
