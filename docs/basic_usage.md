@@ -14,6 +14,7 @@ StackChan_EX_Amigo では、AI_StackChan_Ex をベースに、ローカル serve
 - `server` 経由で LLM / STT / TTS / Vision を扱います
 - Apple Silicon では MLX によるローカル LLM / VLM を利用できます
 - Config UI からペルソナ、Vision キーワード、キャッシュ音声などを調整できます
+- CoreS3では顔の長押しから `タッチ` / `いつでも` の入力方法を選べます
 - CoreS3 のカメラを使い、`見て` / `撮影して` / AI判断による視覚確認に対応します
 - 会話ログや要約は server 側で管理します
 
@@ -51,6 +52,16 @@ stt:
   model: "Local-model"
   base_url: "http://<server-ip>:5050"
 ```
+
+## 入力モード（CoreS3）
+
+1. 顔のタッチ領域を2秒長押しする
+2. いったん指を離す
+3. `タッチ` または `いつでも` のボタンへ新しく触れる
+
+`タッチ` は従来どおり一回ずつ会話します。`いつでも` は対応serverでsessionを開始し、約3.75秒の録音、STT、会話、TTSを順番に繰り返します。毎回のウェイクワードは不要ですが、再生中の割込みやAECを使うfull-duplex会話ではありません。
+
+`いつでも`を使うには上記の `stt.type: 1` / `tts.type: 2` に加え、server側のSilero VADと会話event v2を準備します。詳しくは [入力モード（ドラフト）](input-modes.md) を参照してください。
 
 ### 3. ConfigUI 設定
 

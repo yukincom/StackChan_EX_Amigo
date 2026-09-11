@@ -167,6 +167,8 @@ WHISPER_VAD_SPEECH_PAD_MS=200
 `WHISPER_CLI` に `whisper.cpp` の実行ファイル、`WHISPER_MODEL` / `WHISPER_MODEL_EN` にモデルファイルを設定します。
 `WHISPER_VAD_MODEL` には whisper.cpp 用の Silero VAD モデルを指定します。未設定時は従来の Whisper 無音判定だけを使い、ログに VAD 無効を明示します。短文や特定の誤認識語を文字列で除外する処理は行いません。
 
+Silero VADは音声区間の有無を判定します。発話の宛先や、人間同士の会話かどうかは判別しません。会話参加reducerは現在オフライン評価用で、実運用の会話event経路には未接続です。
+
 ## 5. 起動
 
 `server` 側では、少なくとも次の 2 プロセスを起動します。
@@ -232,6 +234,12 @@ stt:
 
 `Local-model` はダミーです。変更や消去の必要はありません。  
 実際に使う LLM / STT / TTS は `server` 側の設定で決まります。
+
+### 7.1. `いつでも`入力
+
+`いつでも`は、LLM接続先の `POST /v1/conversation/events` を `schema_version: 2` で使用します。serverは通常返答の再生完了と、カメラ／歌のaction完了を受理するまで次の発話を進めません。同じevent IDの再送は同じ結果を返し、処理を重複実行しません。
+
+serverログに `unsupported schema_version` が出る場合は、firmwareに対してserverが旧版です。現在の `main` にそろえて再起動してください。詳しい本体操作と制約は [入力モード（ドラフト）](input-modes.md) を参照してください。
 
 ## 8. 保存先
 

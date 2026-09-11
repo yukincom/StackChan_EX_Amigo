@@ -13,6 +13,9 @@
 
 - ローカル`server` で `chat / stt / tts / 画像解析`の処理が完結 
 - Apple Silicon では `MLX` を使ったローカル LLM / VLM を利用可能
+- CoreS3の顔長押しで入力方法を切り替え
+  - `タッチ`: 一回ずつ会話
+  - `いつでも`: 対応serverと連携して、毎回のウェイクワードなしで順次待受
 - Vision / カメラ連携
   - `見て` 系は一時確認 (`transient`)
   - `撮影して` 系は保存前提 (`archive`)
@@ -135,6 +138,14 @@ AI 発カメラ起動も、ここで設定するキーワードや AI 設定に�
 
 `firmware/` を PlatformIO で開いて書き込みます。
 
+## 入力モード（CoreS3）
+
+顔のタッチ領域を2秒長押しし、いったん指を離してから `タッチ` または `いつでも` を選びます。
+
+`いつでも` には、Whisper STT (`stt.type: 1`)、OpenAI互換TTS (`tts.type: 2`)、Silero VAD、`schema_version: 2`対応serverが必要です。選択は保存されず、別アプリへ移ると停止します。再生中の割込みやAECを使うfull-duplex動作ではありません。
+
+導入条件、復帰動作、エラー表示、現在の制約は [入力モード（ドラフト）](docs/input-modes.md) を参照してください。
+
 ## よく使う保存先
 
 - 実運用設定: `server/json/`
@@ -169,11 +180,12 @@ python3 -m tools.stackchan_lab config validate --repo . --env-dir ~/env
 
 初回だけ再現可能な Python 環境を作る場合は `uv sync --frozen --group test` を使います。これは core Python package を取得しますが、Kokoro/MLX やモデルは取得しません。詳しい範囲、復旧手順、現在固定している既知差分は [docs/no-device-lab.md](docs/no-device-lab.md) を参照してください。
 
-現在は camera mode の既知差分があるため、`smoke` は必須検査が通っても `degraded` / exit 2 です。自動化でこの既知差分だけを許容する場合は `--allow-known-gaps` を明示します。
+既知差分が検出された場合、`smoke` は `degraded` / exit 2 になります。自動化で記録済みの差分だけを許容する場合は `--allow-known-gaps` を明示します。
 
 ## ドキュメント
 
 - 基本手順: [docs/basic_usage.md](docs/basic_usage.md)
+- 入力モード（ドラフト）: [docs/input-modes.md](docs/input-modes.md)
 - server 構成: [docs/server.md](docs/server.md)
 - Vision: [docs/vision.md](docs/vision.md)
 - 実機なし保守ラボ: [docs/no-device-lab.md](docs/no-device-lab.md)
