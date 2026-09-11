@@ -61,9 +61,9 @@ function _setupSearchSettings() {
     document.getElementById('search-provider-status').textContent =
       firecrawl ? '選択中：Firecrawl' : '選択中：Gemini / Google検索';
     document.getElementById('search-provider-help').textContent = firecrawl
-      ? `Firecrawlで検索 → 会話モデル（${input('AI_CHAT_MODEL')?.value || '会話設定を参照'}）で回答。Gemini検索モデルは使用しません。検索はクレジットを消費します。`
+      ? `会話モデル（${input('AI_CHAT_MODEL')?.value || '会話設定を参照'}）が直前文脈から検索語を作成 → Firecrawlで検索 → 同じ会話モデルで回答。Gemini検索モデルは使用しません。検索はクレジットを消費します。`
       : 'GeminiのGoogle検索を使用します。下の検索モデルと、APIキー欄のGeminiキーを使います。Firecrawlは使用しません。';
-    ['AI_SEARCH_MODEL', 'AI_SEARCH_TEMPERATURE', 'AI_SEARCH_RECENT_TURNS'].forEach(key => {
+    ['AI_SEARCH_MODEL', 'AI_SEARCH_TEMPERATURE'].forEach(key => {
       const field = input(key)?.closest('.field');
       if (field) field.style.display = firecrawl ? 'none' : '';
     });

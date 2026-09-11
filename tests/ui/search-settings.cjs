@@ -21,7 +21,7 @@ const assert = require('node:assert/strict');
       const groups = [{group: 'AI', items: [
         {...field('AI_SEARCH_PROVIDER', 'gemini', 'select'), options: ['gemini:Gemini', 'firecrawl:Firecrawl']},
         field('AI_CHAT_MODEL', 'conversation-model'), field('AI_SEARCH_MODEL', 'gemini-test'),
-        field('AI_SEARCH_TEMPERATURE', '0.3'), field('AI_SEARCH_RECENT_TURNS', '1'),
+        field('AI_SEARCH_TEMPERATURE', '0.3'), field('AI_SEARCH_RECENT_TURNS', '3'),
         field('FIRECRAWL_API_KEY', '', 'password'), field('SEARCH_KEYWORDS', '調べて'),
         field('GEMINI_API_KEY', '', 'password')]}];
       document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'block');
@@ -35,8 +35,10 @@ const assert = require('node:assert/strict');
     await page.locator('[data-key="AI_SEARCH_PROVIDER"]').selectOption('firecrawl');
     assert.match(await page.locator('#search-provider-status').innerText(), /Firecrawl/);
     assert.match(await page.locator('#search-provider-help').innerText(), /conversation-model/);
+    assert.match(await page.locator('#search-provider-help').innerText(), /直前文脈から検索語/);
     assert.match(await page.locator('#search-save-status').innerText(), /未保存/);
     assert.equal(await display('AI_SEARCH_MODEL'), 'none');
+    assert.equal(await display('AI_SEARCH_RECENT_TURNS'), '');
     assert.equal(await display('FIRECRAWL_API_KEY'), '');
     await page.locator('[data-key="FIRECRAWL_API_KEY"]').fill('fc-fixture');
     await page.evaluate(async () => {
