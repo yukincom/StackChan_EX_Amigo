@@ -16,6 +16,16 @@ from ai_handler import is_english_mode
 from llm_client import preload_mlx_model
 from member_loader import has_line_users, has_discord_users
 from services.chat_service import process_chat, resolve_speaker_context, trigger_stack_ai_camera_async
+from services.conversation_event_service import (
+    CAMERA_REQUESTERS,
+    MAX_SPEAKER_CHARS,
+    MAX_SPEAKER_LABEL_CHARS,
+    MAX_TEXT_CHARS,
+    EventConflictError,
+    EventContractError,
+    conversation_event_store,
+    validate_wire_id,
+)
 from services.discord_service import _init_last_message_id
 from services.scheduler_service import line_delivery_configured, setup_scheduler, stop_scheduler
 from services.batch_service import run_if_needed
@@ -261,6 +271,9 @@ def _process_vision_operation(op_id: str) -> None:
             str(request_data.get("transcript", "")),
             str(request_data.get("speaker", "master")),
             str(request_data.get("speaker_label", "")),
+            capture_mode=request_data.get("mode"),
+            session_id=request_data.get("session_id"),
+            action_id=request_data.get("action_id"),
         )
     if isinstance(result, dict) and result.get("success"):
         journal.transition(op_id, "succeeded", owner="worker", stage="complete")
@@ -368,18 +381,64 @@ def vision_upload():
         transcript = request.args.get("t", "")         # URL decoded 自動
         speaker = request.args.get("s", "master")
         speaker_label = request.args.get("sl", "")
+        # Missing mode is a pre-upgrade request.  Explicit unknown/empty values
+        # remain transient per the earlier camera-mode compatibility contract.
+        capture_mode = request.args.get("mode")
+        if capture_mode is not None and capture_mode != "archive":
+            capture_mode = "transient"
+
+        if requester not in CAMERA_REQUESTERS:
+            return jsonify({"success": False, "error": "invalid_requester"}), 400
+        if (
+            len(transcript) > MAX_TEXT_CHARS
+            or "\x00" in transcript
+            or len(speaker) > MAX_SPEAKER_CHARS
+            or not speaker
+            or any(c in speaker for c in "\r\n\x00")
+            or len(speaker_label) > MAX_SPEAKER_LABEL_CHARS
+            or any(c in speaker_label for c in "\r\n\x00")
+        ):
+            return jsonify({"success": False, "error": "invalid_vision_metadata"}), 400
+
+        has_session_id = "session_id" in request.args
+        has_action_id = "action_id" in request.args
+        if has_session_id != has_action_id:
+            return jsonify({"success": False, "error": "invalid_action_correlation"}), 400
+        session_id = action_id = None
+        if has_session_id:
+            try:
+                session_id = validate_wire_id(request.args.get("session_id"), "session_id")
+                action_id = validate_wire_id(request.args.get("action_id"), "action_id")
+                conversation_event_store.validate_pending_action(
+                    session_id,
+                    action_id,
+                    action_type="camera_capture",
+                )
+            except EventContractError:
+                return jsonify({"success": False, "error": "invalid_action_correlation"}), 400
+            except EventConflictError as exc:
+                return jsonify({
+                    "success": False,
+                    "error": exc.code,
+                    "code": exc.code,
+                }), 409
 
         with _VISION_JOB_LOCK:
             _VISION_JOB_SEQ += 1
             job_id = _VISION_JOB_SEQ
+        request_fields = {
+            "job_id": job_id,
+            "requester": requester,
+            "transcript": transcript,
+            "speaker": speaker,
+            "speaker_label": speaker_label,
+        }
+        if capture_mode is not None:
+            request_fields["mode"] = capture_mode
+        if session_id is not None and action_id is not None:
+            request_fields.update({"session_id": session_id, "action_id": action_id})
         private_request = json.dumps(
-            {
-                "job_id": job_id,
-                "requester": requester,
-                "transcript": transcript,
-                "speaker": speaker,
-                "speaker_label": speaker_label,
-            },
+            request_fields,
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import queue
 
 import pytest
@@ -186,10 +187,10 @@ def test_chat_backend_failure_is_visible(monkeypatch):
     assert response.get_json()["error"]["type"] == "server_error"
 
 
-def _conversation_event(event_type, event_id, **extra):
+def _conversation_event(event_type, event_id, *, version=1, session_id="device-lab-session", **extra):
     return {
-        "schema_version": 1,
-        "session_id": "device-lab-session",
+        "schema_version": version,
+        "session_id": session_id,
         "event_id": event_id,
         "type": event_type,
         **extra,
@@ -272,6 +273,7 @@ def test_continuous_conversation_requires_start_and_matching_playback(monkeypatc
         json=_conversation_event("playback_completed", "event-played", reply_id="different"),
     )
     assert mismatch.status_code == 409
+    assert mismatch.get_json()["error"]["code"] == "reply_id_mismatch"
 
 
 def test_continuous_conversation_validates_shape_and_size():
@@ -310,6 +312,152 @@ def test_continuous_conversation_clips_device_reply_at_voice_boundary(monkeypatc
     assert len(response.get_json()["reply"]["text"]) == 500
 
 
+def test_v2_continuous_camera_action_is_not_spoken_and_completes(monkeypatch):
+    conversation_event_store.clear()
+    monkeypatch.setattr(
+        openai_compat_routes,
+        "resolve_speaker_context",
+        lambda text: ("master", "[マスター]"),
+    )
+    seen = []
+
+    def camera_chat(text, **kwargs):
+        seen.append(kwargs)
+        return {
+            "success": True,
+            "response": "[[VISION_TRANSIENT_TRIGGER]]",
+            "camera_triggered": True,
+            "camera_mode": "transient",
+            "camera_requester": "user",
+            "speaker": "master",
+            "speaker_label": "[マスター]",
+            "announce_endpoint": "vision_ai_trigger",
+        }
+
+    monkeypatch.setattr(openai_compat_routes, "process_chat", camera_chat)
+    client = app_module.create_app({"TESTING": True}).test_client()
+    assert client.post(
+        "/v1/conversation/events",
+        json=_conversation_event("start", "start-v2", version=2),
+    ).status_code == 200
+    response = client.post(
+        "/v1/conversation/events",
+        json=_conversation_event("speech", "camera-v2", version=2, text="見て"),
+    )
+
+    payload = response.get_json()
+    assert response.status_code == 200
+    assert payload["action"] == "perform"
+    assert payload["reply"] is None
+    assert "stackchan_action" not in payload
+    assert payload["device_action"] == {
+        "action_id": payload["device_action"]["action_id"],
+        "type": "camera_capture",
+        "camera_mode": "transient",
+        "camera_requester": "user",
+        "transcript": "見て",
+        "speaker": "master",
+        "speaker_label": "[マスター]",
+        "announce_endpoint": "vision_ai_trigger",
+    }
+    assert seen[0]["defer_device_actions"] is True
+
+    completed = client.post(
+        "/v1/conversation/events",
+        json=_conversation_event(
+            "action_completed",
+            "camera-done",
+            version=2,
+            action_id=payload["device_action"]["action_id"],
+            status="succeeded",
+        ),
+    )
+    assert completed.status_code == 200
+    assert completed.get_json()["action"] == "listen"
+
+
+def test_touch_opt_in_returns_cached_one_shot_audio_action(monkeypatch):
+    conversation_event_store.clear()
+    monkeypatch.setattr(openai_compat_routes, "resolve_speaker_context", lambda text: ("master", ""))
+    calls = []
+
+    def song_chat(text, **kwargs):
+        calls.append((text, kwargs))
+        return {
+            "success": True,
+            "response": "うたうよ～！",
+            "device_action": {
+                "type": "audio_playback",
+                "audio_url": "http://127.0.0.1:5050/audio/proxy.mp3?src=fixture",
+            },
+        }
+
+    monkeypatch.setattr(openai_compat_routes, "process_chat", song_chat)
+    client = app_module.create_app({"TESTING": True}).test_client()
+    request_payload = {
+        "model": "lab",
+        "messages": [{"role": "user", "content": "歌って"}],
+        "stackchan_device": {
+            "action_schema_version": 2,
+            "session_id": "touch-session",
+            "event_id": "touch-event",
+        },
+    }
+    first = client.post("/v1/chat/completions", json=request_payload)
+    retried = client.post("/v1/chat/completions", json=request_payload)
+    assert first.status_code == retried.status_code == 200
+    assert first.get_json() == retried.get_json()
+    payload = first.get_json()
+    assert payload["choices"][0]["message"]["content"] == ""
+    assert "stackchan_action" not in payload
+    envelope = payload["stackchan_device"]
+    assert envelope["action_schema_version"] == 2
+    assert envelope["action"] == "perform"
+    assert envelope["device_action"]["type"] == "audio_playback"
+    assert len(calls) == 1
+    assert calls[0][1]["defer_device_actions"] is True
+
+    completed = client.post(
+        "/v1/conversation/events",
+        json=_conversation_event(
+            "action_completed",
+            "touch-done",
+            version=2,
+            session_id="touch-session",
+            action_id=envelope["device_action"]["action_id"],
+            status="failed",
+        ),
+    )
+    assert completed.status_code == 200
+    assert completed.get_json()["state"] == "closed"
+    assert completed.get_json()["action"] == "stopped"
+
+
+def test_touch_opt_in_keeps_ordinary_reply_shape(monkeypatch):
+    conversation_event_store.clear()
+    monkeypatch.setattr(openai_compat_routes, "resolve_speaker_context", lambda text: ("master", ""))
+    monkeypatch.setattr(
+        openai_compat_routes,
+        "process_chat",
+        lambda *args, **kwargs: {"success": True, "response": "検索結果だよ", "error": None},
+    )
+    client = app_module.create_app({"TESTING": True}).test_client()
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "messages": [{"role": "user", "content": "調べて"}],
+            "stackchan_device": {
+                "action_schema_version": 2,
+                "session_id": "touch-normal",
+                "event_id": "touch-normal-event",
+            },
+        },
+    )
+    assert response.status_code == 200
+    assert response.get_json()["choices"][0]["message"]["content"] == "検索結果だよ"
+    assert "stackchan_device" not in response.get_json()
+
+
 def test_vision_queue_full_returns_429(monkeypatch):
     lab_queue = queue.Queue(maxsize=1)
     monkeypatch.setattr(app_module, "_VISION_QUEUE", lab_queue)
@@ -324,20 +472,26 @@ def test_vision_queue_full_returns_429(monkeypatch):
     assert second.get_json()["error"] == "vision_busy"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Current firmware/server v1 upload contract omits capture mode; fix in a batched firmware campaign",
-)
-def test_vision_upload_v2_preserves_capture_mode(monkeypatch):
+@pytest.mark.parametrize("query, expected", [
+    ("?mode=archive", "archive"),
+    ("?mode=transient", "transient"),
+    ("?mode=unknown", "transient"),
+    ("?mode=", "transient"),
+    ("", None),
+])
+def test_vision_upload_preserves_capture_mode(monkeypatch, query, expected):
     lab_queue = queue.Queue(maxsize=1)
     monkeypatch.setattr(app_module, "_VISION_QUEUE", lab_queue)
     monkeypatch.setattr(app_module, "_ensure_vision_worker", lambda: None)
     client = app_module.create_app({"TESTING": True}).test_client()
     response = client.post(
-        "/vision/upload?mode=archive",
+        f"/vision/upload{query}",
         data=b"J" * 600,
         content_type="image/jpeg",
     )
     assert response.status_code == 200
-    queued_item = lab_queue.get_nowait()
-    assert queued_item[-1] == "archive"
+    op_id = lab_queue.get_nowait()
+    request_data = json.loads(
+        app_module.get_operation_journal().load_payload(op_id, "request.json")
+    )
+    assert request_data.get("mode") == expected

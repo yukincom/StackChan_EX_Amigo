@@ -17,7 +17,7 @@ from ai_handler import (
     set_english_mode,
 )
 from services.voice_cache_catalog import get_pc_cache_text
-from services.voice_service import generate_voice_mixed, push_to_m5stack
+from services.voice_service import build_push_audio_url, generate_voice_mixed, push_to_m5stack
 from services.weather_service import get_weather_response
 from member_loader import (
     MASTER_MASK_LABEL,
@@ -290,7 +290,14 @@ def _build_voice_response(ai_response, user_text, speaker, speaker_label, genera
     return {"success": True, "response": ai_response, "error": None}
 
 
-def process_chat(user_text, speaker="master", generate_voice_flag=False, speaker_label=None):
+def process_chat(
+    user_text,
+    speaker="master",
+    generate_voice_flag=False,
+    speaker_label=None,
+    *,
+    defer_device_actions=False,
+):
     print(f"[USER = {speaker}] {mask_names(user_text)[:80]}")
     member_data = load_member_data()
     master_label = MASTER_MASK_LABEL
@@ -379,6 +386,19 @@ def process_chat(user_text, speaker="master", generate_voice_flag=False, speaker
                 ai_response,
                 speaker_label=speaker_label if speaker_label else master_label,
             )
+
+            if defer_device_actions:
+                return {
+                    "success": True,
+                    "response": ai_response,
+                    "error": None,
+                    "device_action": {
+                        "type": "audio_playback",
+                        # /song serves WAV.  Keep the existing MP3 proxy because
+                        # the firmware action player uses the MP3 decoder.
+                        "audio_url": build_push_audio_url(song_url),
+                    },
+                }
 
             push_to_m5stack(song_url)
             return {"success": True, "response": ai_response, "error": None}

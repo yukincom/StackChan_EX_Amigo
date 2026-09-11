@@ -46,6 +46,41 @@ def test_acknowledged_delivery_completes_and_deletes_payload(monkeypatch, tmp_pa
     assert not (journal.spool_dir / operation["op_id"]).exists()
 
 
+def test_correlated_delivery_carries_action_fields_to_play(monkeypatch, tmp_path):
+    _install_isolated_delivery(monkeypatch, tmp_path)
+    calls = []
+
+    def accepted(url, **kwargs):
+        calls.append((url, kwargs))
+        return _AcceptedResponse()
+
+    monkeypatch.setattr(voice_service.requests, "post", accepted)
+    assert voice_service.push_to_m5stack(
+        "http://127.0.0.1/voice/fixture",
+        fire_and_forget=False,
+        session_id="camera-session",
+        action_id="camera-action",
+        action_status="succeeded",
+    )
+    assert calls[0][1]["json"] == {
+        "voice_url": voice_service.build_push_audio_url(
+            "http://127.0.0.1/voice/fixture"
+        ),
+        "session_id": "camera-session",
+        "action_id": "camera-action",
+        "action_status": "succeeded",
+    }
+
+
+def test_partial_action_correlation_is_rejected_before_persistence(monkeypatch, tmp_path):
+    journal = _install_isolated_delivery(monkeypatch, tmp_path)
+    assert not voice_service.push_to_m5stack(
+        "http://127.0.0.1/voice/fixture",
+        session_id="camera-session",
+    )
+    assert journal.latest() == {}
+
+
 def test_lost_response_becomes_uncertain_and_is_never_auto_retried(monkeypatch, tmp_path):
     journal = _install_isolated_delivery(monkeypatch, tmp_path)
 
