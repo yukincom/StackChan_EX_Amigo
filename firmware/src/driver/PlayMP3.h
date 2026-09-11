@@ -23,8 +23,8 @@ extern bool playMP3(AudioFileSourceBuffer *buff, bool checkCompletion = false);
 extern bool playMP3SPIFFS(const char *filename, bool checkCompletion = false, bool useTalkingExpression = true);
 extern bool playMP3SD(const char *filename, bool useTalkingExpression = true, bool checkCompletion = false);
 extern bool playMP3URL(const char *url, bool checkCompletion = false, bool useTalkingExpression = true);
-extern bool playLocalPrompt(const char *endpoint);
-extern void playInputErrorPrompt(bool connectionError = false);
+extern bool playLocalPrompt(const char *endpoint, bool checkCompletion = false);
+extern void playInputErrorPrompt(bool connectionError = false, const char *preferredEndpoint = nullptr);
 extern void markSkipNextTtsSpeech(void);
 extern bool consumeSkipNextTtsSpeech(void);
 

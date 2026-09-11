@@ -20,6 +20,7 @@ static bool audioResult = true, cameraResult = true;
 static bool audioChecked = false, audioTalking = true;
 static m5avatar::Expression expressionAtAudio = m5avatar::Expression::Neutral;
 static std::string cameraSession, cameraAction;
+static std::string errorEndpoint;
 void setActivityExpression(m5avatar::Expression value) { avatar.setExpression(value); }
 void setExplicitExpression(m5avatar::Expression value) { avatar.setExpression(value); }
 void setIdleExpression() { avatar.setExpression(m5avatar::Expression::Neutral); }
@@ -33,8 +34,10 @@ bool playMP3URL(const char*, bool checked, bool talking) {
   ++audioCalls; audioChecked = checked; audioTalking = talking;
   expressionAtAudio = avatar.getExpression(); return audioResult;
 }
-bool playLocalPrompt(const char*) { return false; }
-void playInputErrorPrompt(bool) { ++errorCalls; }
+bool playLocalPrompt(const char*, bool) { return false; }
+void playInputErrorPrompt(bool, const char* endpoint) {
+  ++errorCalls; errorEndpoint = endpoint ? endpoint : "";
+}
 bool camera_capture_post_upload(const String&, const char*, const char*, const char*, const char*, const char*, const char* session, const char* action) {
   ++cameraCalls; cameraSession = session; cameraAction = action; return cameraResult;
 }
@@ -105,6 +108,7 @@ static void reset() {
   s_camera_trigger_pending = false; s_camera_wait_expired = false;
   clear_camera_trigger_awaiting();
   audioCalls = cameraCalls = errorCalls = 0;
+  errorEndpoint.clear();
   cameraResult = audioResult = true;
   audioChecked = false; audioTalking = true;
   fixtureRobot.chatCalls = fixtureRobot.speechCalls = 0;
@@ -118,7 +122,7 @@ static stackchan::ConversationSession& prepareAlways(const char* type) {
   require(session.speech("fixture") == stackchan::ConversationSession::Outcome::Perform, "perform failed");
   return session;
 }
-static stackchan::ConversationSession& prepareTouch() {
+static stackchan::ConversationSession& prepareTouch(const char* type = "audio_playback") {
   auto& session = stackchan::touchActionSession();
   touchTransport.oneShot = true;
   ArduinoJson::DynamicJsonDocument envelope(2048);
@@ -126,7 +130,7 @@ static stackchan::ConversationSession& prepareTouch() {
   envelope["session_id"] = "touch-session";
   envelope["event_id"] = "touch-event";
   envelope["action"] = "perform";
-  Transport::addAction(envelope["device_action"].to<ArduinoJson::JsonObject>(), "audio_playback");
+  Transport::addAction(envelope["device_action"].to<ArduinoJson::JsonObject>(), type);
   require(session.adoptTouchAction("touch-session", "touch-event", envelope.as<ArduinoJson::JsonVariantConst>()), "adopt failed");
   return session;
 }
@@ -181,6 +185,7 @@ static void testTimeoutOnce() {
   push(sid); require(server.responseCode == 409 && !s_play_request_pending, "expired push accepted");
   process_camera_trigger_request(); process_camera_trigger_request();
   require(errorCalls == 1 && cameraCalls == 1 && audioCalls == 0, "timeout feedback repeated or action replayed");
+  require(errorEndpoint == "vision_error", "camera timeout lost dedicated SD phrase");
   require(session.phase() == stackchan::ConversationSession::Phase::Listening && !is_camera_trigger_active(), "timeout failed to restore listening");
   require(alwaysTransport.requests.back().find("\"status\":\"failed\"") != std::string::npos, "timeout acknowledged success");
 }
@@ -201,6 +206,7 @@ static void testSongDownloadFailure() {
   audioResult = false;
   request_conversation_action(session); process_play_request();
   require(audioCalls == 1 && errorCalls == 1 && !is_camera_trigger_active(), "download failure cleanup missing");
+  require(errorEndpoint.empty(), "song failure used image error phrase");
   require(session.phase() == stackchan::ConversationSession::Phase::Listening, "download failure changed input session");
   require(alwaysTransport.requests.back().find("\"status\":\"failed\"") != std::string::npos, "download failure acknowledged success");
 }
@@ -219,14 +225,16 @@ static void testFailedPushSingleExplanation() {
   const auto sid = session.sessionId();
   request_conversation_action(session); process_camera_trigger_request();
   push(sid, "action-A", "failed"); require(server.responseCode == 200, "failed result push rejected");
+  alwaysTransport.failures = 1;
   process_play_request();
-  require(audioCalls == 1 && errorCalls == 0, "failure explanation repeated");
-  require(audioChecked && !audioTalking && expressionAtAudio == m5avatar::Expression::Confusion, "failed push lost confusion or checked playback");
-  require(avatar.getExpression() == m5avatar::Expression::Neutral, "failed push left confusion face");
+  require(audioCalls == 0 && errorCalls == 1 && errorEndpoint == "vision_error", "image failure did not use SD-only explanation");
+  const auto ack = alwaysTransport.requests.back();
+  nowMs += 1001; process_play_request();
+  require(audioCalls == 0 && errorCalls == 1 && alwaysTransport.requests.back() == ack, "image failure replayed on ACK retry");
   require(session.phase() == stackchan::ConversationSession::Phase::Listening, "failed push did not restore listening");
   require(alwaysTransport.requests.back().find("\"status\":\"failed\"") != std::string::npos, "failed action acknowledged success");
 }
-static void testFailedLocalPushMissingCache() {
+static void testFailedLocalPushDedicatedPrompt() {
   auto& session = prepareAlways("camera_capture");
   const auto sid = session.sessionId();
   request_conversation_action(session); process_camera_trigger_request();
@@ -238,10 +246,26 @@ static void testFailedLocalPushMissingCache() {
   doc["endpoint"] = "error";
   server.requestBody.clear(); serializeJson(doc, server.requestBody); handle_play_local();
   require(server.responseCode == 200, "valid failed cache push rejected");
-  audioResult = false; // The SD/decoder boundary reports missing/unplayable cache.
   process_play_request();
-  require(audioCalls == 1 && errorCalls == 1 && !is_camera_trigger_active(), "missing failure cache did not fall back once and clear queue");
-  require(session.phase() == stackchan::ConversationSession::Phase::Listening, "missing cache stranded session");
+  require(audioCalls == 0 && errorCalls == 1 && errorEndpoint == "vision_error" && !is_camera_trigger_active(), "failed local push did not choose dedicated SD phrase");
+  require(session.phase() == stackchan::ConversationSession::Phase::Listening, "failed local push stranded session");
+}
+static void testSuccessfulImageAudioFailure() {
+  auto& session = prepareAlways("camera_capture");
+  request_conversation_action(session); process_camera_trigger_request();
+  push(session.sessionId());
+  audioResult = false;
+  process_play_request();
+  require(audioCalls == 1 && errorCalls == 1 && errorEndpoint.empty(), "successful image audio failure used image failure phrase");
+  require(session.phase() == stackchan::ConversationSession::Phase::Listening, "image audio failure stranded input");
+}
+static void testTouchCameraFailure() {
+  auto& session = prepareTouch("camera_capture");
+  request_conversation_action(session); process_camera_trigger_request();
+  push(session.sessionId(), "action-A", "failed");
+  process_play_request();
+  require(audioCalls == 0 && errorCalls == 1 && errorEndpoint == "vision_error", "Touch camera failure lost SD phrase");
+  require(session.phase() == stackchan::ConversationSession::Phase::Off && !is_camera_trigger_active(), "Touch camera failure did not restore touch wait");
 }
 static void testTouchSuccessfulOneShot() {
   auto& session = prepareTouch();
@@ -279,6 +303,7 @@ static void testCaptureFailure() {
   cameraResult = false;
   request_conversation_action(session); process_camera_trigger_request();
   require(cameraCalls == 1 && audioCalls == 0 && errorCalls == 1, "capture failure repeated or lost feedback");
+  require(errorEndpoint == "vision_error", "capture failure lost dedicated SD phrase");
   require(!is_camera_trigger_active() && session.phase() == stackchan::ConversationSession::Phase::Listening, "capture failure stranded input");
   require(alwaysTransport.requests.back().find("\"status\":\"failed\"") != std::string::npos, "capture failure acknowledged success");
 }
@@ -314,7 +339,9 @@ int main() {
     {"song_download_failure_cleanup", testSongDownloadFailure},
     {"busy_legacy_chat_speech_guards", testBusyLegacyGuards},
     {"failed_push_single_confusion_explanation", testFailedPushSingleExplanation},
-    {"failed_local_push_missing_cache_cleanup", testFailedLocalPushMissingCache},
+    {"failed_local_push_dedicated_prompt", testFailedLocalPushDedicatedPrompt},
+    {"successful_image_audio_failure", testSuccessfulImageAudioFailure},
+    {"touch_camera_failure", testTouchCameraFailure},
     {"touch_successful_one_shot_closed", testTouchSuccessfulOneShot},
     {"fatal_completion_releases_owner", testFatalCompletionReleasesOwner},
     {"explicit_cancel_orphan_touch_ack", testCancelOrphanTouch},

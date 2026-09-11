@@ -36,6 +36,6 @@ void cancel_conversation_action();
 bool conversation_action_owns(const stackchan::ConversationSession& session);
 bool playMP3SD(const char*, bool = true, bool = false);
 bool playMP3URL(const char*, bool = false, bool = true);
-bool playLocalPrompt(const char*);
-void playInputErrorPrompt(bool = false);
+bool playLocalPrompt(const char*, bool = false);
+void playInputErrorPrompt(bool = false, const char* = nullptr);
 bool camera_capture_post_upload(const String&, const char*, const char*, const char*, const char*, const char*, const char* = "", const char* = "");

@@ -42,11 +42,12 @@ static uint32_t s_action_retry_at = 0;
 static bool s_camera_wait_expired = false;
 static bool s_play_action_succeeded = true;
 
-static void finish_conversation_action(bool succeeded, bool errorPresented = false) {
+static void finish_conversation_action(bool succeeded, bool errorPresented = false,
+                                       const char* errorEndpoint = nullptr) {
   if (!s_action_session || s_action_finished) return;
   clear_camera_trigger_awaiting();
   s_action_finished = true;  // Close push admission before playing an error.
-  if (!succeeded && !errorPresented) playInputErrorPrompt();
+  if (!succeeded && !errorPresented) playInputErrorPrompt(false, errorEndpoint);
   if (s_action_session->actionCompleted(succeeded)) {
     s_action_session = nullptr;
     s_action_finished = false;
@@ -209,10 +210,10 @@ bool request_conversation_action(stackchan::ConversationSession& session) {
           action.cameraRequester.c_str(), action.transcript.c_str(),
           action.cameraMode.c_str(), action.speaker.c_str(), action.speakerLabel.c_str(),
           action.announceEndpoint.c_str())) {
-      finish_conversation_action(false);
+      finish_conversation_action(false, false, "vision_error");
     }
 #else
-    finish_conversation_action(false);
+    finish_conversation_action(false, false, "vision_error");
 #endif
   } else if (action.type == "audio_playback") {
     s_play_voice_url = action.audioUrl.c_str();
@@ -511,6 +512,14 @@ void process_play_request(void)
   s_play_local = false;
   s_play_active = true;
 
+  if (s_action_session && !s_play_action_succeeded
+      && s_action_session->deviceAction().type == "camera_capture") {
+    // An explicit image failure uses the local SD phrase, independent of
+    // network audio delivery. Do not play the server explanation as well.
+    s_play_active = false;
+    finish_conversation_action(false, false, "vision_error");
+    return;
+  }
   const bool errorAudio = s_action_session && !s_play_action_succeeded;
   if (errorAudio) setActivityExpression(Expression::Confusion);
   bool result = false;
@@ -594,8 +603,8 @@ void process_camera_trigger_request(void)
   is_camera_trigger_awaiting_now();
   if (s_camera_wait_expired) {
     s_camera_wait_expired = false;
-    if (s_action_session) finish_conversation_action(false);
-    else playInputErrorPrompt();
+    if (s_action_session) finish_conversation_action(false, false, "vision_error");
+    else playInputErrorPrompt(false, "vision_error");
   }
 #if defined(ENABLE_CAMERA)
   if (!s_camera_trigger_pending || g_cameraBusy) {
@@ -644,8 +653,8 @@ void process_camera_trigger_request(void)
     mark_camera_trigger_awaiting();
   } else {
     clear_camera_trigger_awaiting();
-    if (s_action_session) finish_conversation_action(false);
-    else playInputErrorPrompt();
+    if (s_action_session) finish_conversation_action(false, false, "vision_error");
+    else playInputErrorPrompt(false, "vision_error");
   }
   Serial.printf("[CAMERA_TRIGGER] result=%s\n", result ? "ok" : "ng");
 #endif

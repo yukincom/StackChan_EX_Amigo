@@ -51,6 +51,12 @@ def _build_and_run(root: Path, sources: Path, tmp_path: Path):
     result = run([str(binary), str(standard), str(raw)])
     assert "PASS normal-id3" in result.stdout
     assert "PASS valid-empty-valid-reuse" in result.stdout
+    # Ship only a prompt that the actual firmware decoder/completion loop
+    # accepts; ffprobe metadata alone would not establish this boundary.
+    prompt = root / "Copy-to-SD/stack_sd_audio/vision_error.mp3"
+    prompt_result = run([str(binary), str(prompt), str(raw)])
+    assert "PASS normal-id3" in prompt_result.stdout
+    assert "PASS valid-empty-valid-reuse" in prompt_result.stdout
     return result.stdout
 
 

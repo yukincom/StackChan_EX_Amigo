@@ -298,7 +298,7 @@ bool playMP3URL(const char *url, bool checkCompletion, bool useTalkingExpression
   return result;
 }
 
-bool playLocalPrompt(const char *endpoint)
+bool playLocalPrompt(const char *endpoint, bool checkCompletion)
 {
   if (endpoint == nullptr || strlen(endpoint) == 0) {
     return false;
@@ -309,16 +309,22 @@ bool playLocalPrompt(const char *endpoint)
   sd_path += ".mp3";
 
   bool useTalkingExpression = strcmp(endpoint, "hm") == 0;
-  return playMP3SD(sd_path.c_str(), useTalkingExpression);
+  return playMP3SD(sd_path.c_str(), useTalkingExpression, checkCompletion);
 }
 
-void playInputErrorPrompt(bool connectionError)
+void playInputErrorPrompt(bool connectionError, const char *preferredEndpoint)
 {
   const uint32_t started = millis();
   setActivityExpression(Expression::Confusion);
   // Existing local prompts preserve the activity face. Never mark the next
   // unrelated TTS for skipping; there is no queued TTS paired with this call.
-  playLocalPrompt(connectionError ? "server_error" : "error");
+  const char *fallback = connectionError ? "server_error" : "error";
+  // The dedicated SD prompt is checked, so missing/corrupt audio falls back
+  // once. Legacy prompts retain their existing playback policy.
+  if (preferredEndpoint == nullptr || preferredEndpoint[0] == '\0'
+      || !playLocalPrompt(preferredEndpoint, true)) {
+    playLocalPrompt(fallback);
+  }
   const uint32_t elapsed = millis() - started;
   if (elapsed < 1000) delay(1000 - elapsed);  // Existing error-face duration.
   // Missing SD audio must still leave the error/thinking activity and return.
