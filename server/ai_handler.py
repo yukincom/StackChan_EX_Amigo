@@ -110,10 +110,17 @@ def get_ai_response(user_text, context, speaker, mode="normal"):
     masked_text = _mask_prompt_text(user_text, mask_assistant_name=search_mode)
 
     recent_text = ""
+    masked_recent_conversations = []
     for conv in context.get("recent_conversations", []):
+        masked_user = _mask_prompt_text(conv['user'], mask_assistant_name=search_mode)
+        masked_assistant = _mask_prompt_text(conv['assistant'], mask_assistant_name=search_mode)
+        masked_recent_conversations.append({
+            "user": masked_user,
+            "assistant": masked_assistant,
+        })
         recent_text += (
-            f"  {_mask_prompt_text(conv['user'], mask_assistant_name=search_mode)}"
-            f" → {_mask_prompt_text(conv['assistant'], mask_assistant_name=search_mode)}\n"
+            f"  {masked_user}"
+            f" → {masked_assistant}\n"
         )
 
     # ★ 家族構成もマスク
@@ -212,7 +219,11 @@ def get_ai_response(user_text, context, speaker, mode="normal"):
 アシスタント: """
     try:
         if search_mode:
-            raw = llm_client.call_search(prompt, query=masked_text)
+            raw = llm_client.call_search(
+                prompt,
+                query=masked_text,
+                recent_conversations=masked_recent_conversations,
+            )
         else:
             raw = llm_client.call(prompt)
         ai_text = unmask_names(raw)

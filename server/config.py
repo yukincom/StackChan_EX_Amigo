@@ -115,7 +115,7 @@ class Config:
     # AI出力設定
     AI_MAX_OUTPUT_TOKENS = _int_env("AI_MAX_OUTPUT_TOKENS", 1200)
     AI_RECENT_TURNS = _int_env("AI_RECENT_TURNS", 5)
-    AI_SEARCH_RECENT_TURNS = _int_env("AI_SEARCH_RECENT_TURNS", 1)
+    AI_SEARCH_RECENT_TURNS = _int_env("AI_SEARCH_RECENT_TURNS", 3)
     CONVERSATION_FORECAST_ENABLED = _bool_env("CONVERSATION_FORECAST_ENABLED", True)
     
     # 用途別temperature

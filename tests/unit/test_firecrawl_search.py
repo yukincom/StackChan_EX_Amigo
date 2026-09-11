@@ -29,6 +29,14 @@ def adapter(monkeypatch):
     return module
 
 
+@pytest.fixture
+def planner():
+    return load(
+        "isolated_search_query_planner",
+        SERVER / "services/search_query_planner.py",
+    )
+
+
 def response(payload, status=200):
     result = MagicMock(status_code=status)
     result.__enter__.return_value = result
@@ -90,6 +98,39 @@ def test_timeout_redacted(adapter, monkeypatch):
     assert "fc-test-only" not in str(error.value)
 
 
+def test_query_planner_uses_only_two_bounded_masked_turns(planner):
+    prompt = planner.build_search_query_prompt(
+        "それについて最新情報を調べて",
+        [
+            {"user": "古い話", "assistant": "古い返答"},
+            {"user": "[マスター]が新型端末を見た", "assistant": "製品Aだね"},
+            {"user": "発売日が気になる", "assistant": "まだ確認していないよ"},
+        ],
+    )
+    assert "古い話" not in prompt
+    assert "製品A" in prompt
+    assert "発売日が気になる" in prompt
+    assert "それについて最新情報を調べて" in prompt
+    assert "人格" not in prompt
+
+
+@pytest.mark.parametrize("raw", [
+    '{"query":""}',
+    '{"query":"ok","extra":true}',
+    '```json\n{"query":"製品A 発売日"}\n```',
+    '{"query":"一行目\\n二行目"}',
+    '{"query":"[マスター] 製品A"}',
+    {"query": 123},
+])
+def test_query_planner_rejects_invalid_or_private_output(planner, raw):
+    with pytest.raises((ValueError, TypeError)):
+        planner.parse_search_query(raw)
+
+
+def test_query_planner_accepts_closed_json(planner):
+    assert planner.parse_search_query('{"query":"  製品A 発売日  "}') == "製品A 発売日"
+
+
 @pytest.fixture
 def modules(monkeypatch, tmp_path, adapter):
     cfg = types.SimpleNamespace(
@@ -117,20 +158,76 @@ def test_provider_dispatch(modules, adapter, monkeypatch):
     gemini = MagicMock(return_value="gemini answer")
     chat = MagicMock(return_value="chat answer")
     search = MagicMock(return_value="source data")
+    structured = MagicMock(return_value='{"query":"製品A 発売日"}')
     monkeypatch.setattr(client, "_call_gemini", gemini)
     monkeypatch.setattr(client, "call", chat)
+    monkeypatch.setattr(client, "call_structured", structured)
     monkeypatch.setattr(adapter, "search_context", search)
     assert client.call_search("persona and history", query="masked query") == "gemini answer"
     search.assert_not_called()
     assert gemini.call_args.kwargs["use_search"] is True
+    structured.assert_not_called()
     cfg.AI_SEARCH_PROVIDER = "firecrawl"
-    assert client.call_search("persona and history", query="masked query") == "chat answer"
-    search.assert_called_once_with("masked query")
+    assert client.call_search(
+        "persona and history",
+        query="それを調べて",
+        recent_conversations=[{"user": "製品Aの話", "assistant": "発売日は未確認"}],
+    ) == "chat answer"
+    search.assert_called_once_with("製品A 発売日")
+    planner_prompt = structured.call_args.args[0]
+    assert "製品Aの話" in planner_prompt
+    assert "persona and history" not in planner_prompt
+    assert structured.call_args.kwargs == {"temperature": 0.1, "max_tokens": 120}
     assert "source data" in chat.call_args.args[0]
     assert gemini.call_count == 1
     cfg.AI_SEARCH_PROVIDER = "unknown"
     with pytest.raises(ValueError):
         client.call_search("prompt", query="q")
+
+
+def test_invalid_planned_query_does_not_spend_search_request(modules, adapter, monkeypatch):
+    cfg, client, _ = modules
+    cfg.AI_SEARCH_PROVIDER = "firecrawl"
+    monkeypatch.setattr(client, "call_structured", MagicMock(return_value='{"query":""}'))
+    search = MagicMock()
+    monkeypatch.setattr(adapter, "search_context", search)
+
+    with pytest.raises(ValueError):
+        client.call_search("answer prompt", query="それを調べて")
+
+    search.assert_not_called()
+
+
+def test_ai_handler_passes_only_masked_recent_turns_to_search_planner(monkeypatch):
+    import ai_handler
+
+    search = MagicMock(return_value="検索回答")
+    monkeypatch.setattr(ai_handler.llm_client, "call_search", search)
+    monkeypatch.setattr(ai_handler, "mask_names", lambda text: (text or "").replace("本名", "[家族1]"))
+    monkeypatch.setattr(ai_handler, "unmask_names", lambda text: text)
+    monkeypatch.setattr(ai_handler, "load_member_data", lambda: {"family": []})
+    monkeypatch.setattr(ai_handler, "get_speaker_mask_label_map", lambda _members: {})
+
+    result = ai_handler.get_ai_response(
+        "それを調べて",
+        {
+            "persona": "人格",
+            "recent_conversations": [
+                {"user": "本名が製品Aを見た", "assistant": "発売日は未確認"},
+            ],
+            "family": {},
+            "notes": "注釈",
+            "interests": "興味",
+            "game_progress": [],
+        },
+        "master",
+    )
+
+    assert result == "検索回答"
+    assert search.call_args.kwargs["query"] == "それを調べて"
+    assert search.call_args.kwargs["recent_conversations"] == [
+        {"user": "[家族1]が製品Aを見た", "assistant": "発売日は未確認"},
+    ]
 
 
 @pytest.mark.parametrize("provider, backend_name, search_flag", [

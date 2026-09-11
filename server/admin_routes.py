@@ -419,7 +419,7 @@ AI_ENV_GROUPS = [
         "items": [
             {"key": "AI_MAX_OUTPUT_TOKENS",   "label": "最大出力トークン数",                        "type": "number"},
             {"key": "AI_RECENT_TURNS",        "label": "通常会話の記憶ターン数（推奨：10未満）",      "type": "number"},
-            {"key": "AI_SEARCH_RECENT_TURNS", "label": "Gemini検索の総ターン数（Firecrawlへの検索語は今回の入力のみ）", "type": "number", "default": "1"},
+            {"key": "AI_SEARCH_RECENT_TURNS", "label": "検索回答・検索語生成に使う総ターン数", "type": "number", "default": "3"},
             {"key": "CONVERSATION_FORECAST_ENABLED", "label": "次発話予測によるSTT補助", "type": "select", "default": "true",
              "options": ["true:有効", "false:無効"]},
             {"key": "AI_CHAT_TEMPERATURE",    "label": "会話 Temperature（豊かさ・デフォルト 0.8）", "type": "number"},
