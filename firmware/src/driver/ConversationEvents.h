@@ -10,4 +10,6 @@ class DeviceConversationTransport : public ConversationTransport {
 };
 
 ConversationSession& conversationSession();
+ConversationSession& touchActionSession();
+std::string newConversationId();
 }  // namespace stackchan

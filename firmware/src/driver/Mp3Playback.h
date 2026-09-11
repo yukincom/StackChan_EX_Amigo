@@ -18,6 +18,7 @@ inline bool decodeMp3(AudioGeneratorMP3& decoder, AudioFileSourceBuffer& source,
     AudioOutputM5Speaker* output;
     bool failed;
   } status{&output, false};
+  const uint32_t expectedSize = source.getSize();
   output.setDrainOnStop(checkCompletion);
   decoder.RegisterStatusCB([](void* context, int code, const char*) {
     auto& state = *static_cast<DecodeStatus*>(context);
@@ -35,18 +36,22 @@ inline bool decodeMp3(AudioGeneratorMP3& decoder, AudioFileSourceBuffer& source,
     return false;
   }
   bool reachedEof = false;
+  bool bodyComplete = false;
   while (decoder.isRunning()) {
     if (!decoder.loop()) {
       // Natural EOF returns false with running still set. A decoder failure
       // stops internally or reports a status; neither is played-complete.
       reachedEof = decoder.isRunning();
+      // stop() closes SD/SPIFFS sources, after which their position/size are
+      // zero. Capture finite-body completion while the source is still open.
+      if (reachedEof) bodyComplete = mp3BodyComplete(expectedSize, source.getPos());
       decoder.stop();
     }
     delay(1);
   }
   decoder.RegisterStatusCB(nullptr, nullptr);
   output.setDrainOnStop(false);
-  return !checkCompletion || (reachedEof && !status.failed
+  return !checkCompletion || (reachedEof && bodyComplete && !status.failed
       && output.hasDecodedAudio() && output.playbackDelivered());
 }
 

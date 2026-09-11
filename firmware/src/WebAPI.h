@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <M5Unified.h>
+#include "share/ConversationSession.h"
 
 extern void init_web_server(void);
 extern void web_server_handle_client(void);
@@ -11,6 +12,9 @@ extern void process_camera_trigger_request(void);
 extern void mark_camera_trigger_awaiting(uint32_t timeout_ms = 8000);
 extern void clear_camera_trigger_awaiting(void);
 extern bool is_camera_trigger_active(void);
+extern bool request_conversation_action(stackchan::ConversationSession& session);
+extern void cancel_conversation_action(void);
+extern bool conversation_action_owns(const stackchan::ConversationSession& session);
 extern bool request_camera_trigger(
   const String& requester,
   const String& context,

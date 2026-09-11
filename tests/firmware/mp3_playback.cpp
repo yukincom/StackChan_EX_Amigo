@@ -60,6 +60,7 @@ class Source final : public AudioFileSource {
   size_t advertised;
   size_t position = 0;
   bool opened = true;
+  bool clearPositionOnClose = false;
 
   uint32_t read(void* target, uint32_t count) override {
     count = std::min<size_t>(count, bytes.size() - position);
@@ -69,8 +70,8 @@ class Source final : public AudioFileSource {
   }
   bool close() override { opened = false; return true; }
   bool isOpen() override { return opened; }
-  uint32_t getPos() override { return position; }
-  uint32_t getSize() override { return advertised; }
+  uint32_t getPos() override { return !opened && clearPositionOnClose ? 0 : position; }
+  uint32_t getSize() override { return !opened && clearPositionOnClose ? 0 : advertised; }
 };
 
 class ObservedDecoder final : public AudioGeneratorMP3 {
@@ -169,16 +170,24 @@ int main(int argc, char** argv) {
     require(!decode(closed, decoder, output), "closed source was accepted");
     std::puts("PASS begin-failure-callback-cleanup");
 
-    // Preserve the real OpenAITTS transport boundary alongside the decoder:
-    // source EOF alone cannot distinguish a complete response from disconnect.
-    // This calls its production predicate, never a copied length expression.
+    // The production helper checks finite-body completion before stop closes
+    // the source. Decoder EOF alone must not acknowledge a disconnected HTTP.
     Source shortened(normal);
     shortened.bytes.resize(shortened.bytes.size() / 2);
     const bool shortenedDecoded = decode(shortened, decoder, output);
-    const bool shortenedComplete = stackchan::mp3BodyComplete(
-        shortened.getSize(), shortened.getPos());
-    require(!shortenedComplete, "truncated HTTP response marked complete");
-    require(!(shortenedDecoded && shortenedComplete), "truncated HTTP acknowledged");
+    require(!shortenedDecoded, "truncated HTTP acknowledged by playback helper");
+    Source unknownLength(normal);
+    unknownLength.advertised = UINT32_MAX;
+    require(!decode(unknownLength, decoder, output), "unknown HTTP length acknowledged");
+    Source fileSource(normal);
+    fileSource.clearPositionOnClose = true;
+    require(decode(fileSource, decoder, output), "closed file lost successful completion");
+    require(fileSource.getPos() == 0 && fileSource.getSize() == 0,
+            "FS fixture did not discard close-time position");
+    Source shortFile(normal);
+    shortFile.clearPositionOnClose = true;
+    shortFile.bytes.resize(shortFile.bytes.size() / 2);
+    require(!decode(shortFile, decoder, output), "truncated file acknowledged");
     require(!stackchan::mp3BodyComplete(0, 0), "empty body acknowledged");
     require(!stackchan::mp3BodyComplete(UINT32_MAX, normal.size()),
             "unknown content length acknowledged");

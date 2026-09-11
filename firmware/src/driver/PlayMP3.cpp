@@ -75,7 +75,7 @@ bool playMP3(AudioFileSourceBuffer *buff, bool checkCompletion){
   return result;
 }
 
-bool playMP3SPIFFS(const char *filename)
+bool playMP3SPIFFS(const char *filename, bool checkCompletion, bool useTalkingExpression)
 {
   bool result;
 
@@ -101,12 +101,12 @@ bool playMP3SPIFFS(const char *filename)
         Serial.println("failed to allocate mp3 source buffer");
         return false;
       }
-      setActivityExpression(Expression::Happy);
+      if (useTalkingExpression) setActivityExpression(Expression::Happy);
       servo_home = false;
 
-      result = playMP3(buff);
+      result = playMP3(buff, checkCompletion);
       
-      setIdleExpression();
+      if (useTalkingExpression) setIdleExpression();
       servo_home = true;
 
       delete buff;
@@ -120,7 +120,7 @@ bool playMP3SPIFFS(const char *filename)
 }
 
 
-bool playMP3SD(const char *filename, bool useTalkingExpression)
+bool playMP3SD(const char *filename, bool useTalkingExpression, bool checkCompletion)
 {
   bool result;
 
@@ -153,7 +153,7 @@ bool playMP3SD(const char *filename, bool useTalkingExpression)
       }
       servo_home = false;
 
-      result = playMP3(buff);
+      result = playMP3(buff, checkCompletion);
       
       if (useTalkingExpression) {
         setIdleExpression();
@@ -173,7 +173,7 @@ bool playMP3SD(const char *filename, bool useTalkingExpression)
   return result;
 }
 
-bool playMP3URL(const char *url)
+bool playMP3URL(const char *url, bool checkCompletion, bool useTalkingExpression)
 {
   bool result = false;
   static constexpr const char *kTempPushMp3 = "/push_tmp.mp3";
@@ -293,7 +293,7 @@ bool playMP3URL(const char *url)
     return false;
   }
 
-  result = playMP3SPIFFS(kTempPushMp3);
+  result = playMP3SPIFFS(kTempPushMp3, checkCompletion, useTalkingExpression);
   SPIFFS.remove(kTempPushMp3);
   return result;
 }
@@ -310,6 +310,19 @@ bool playLocalPrompt(const char *endpoint)
 
   bool useTalkingExpression = strcmp(endpoint, "hm") == 0;
   return playMP3SD(sd_path.c_str(), useTalkingExpression);
+}
+
+void playInputErrorPrompt(bool connectionError)
+{
+  const uint32_t started = millis();
+  setActivityExpression(Expression::Confusion);
+  // Existing local prompts preserve the activity face. Never mark the next
+  // unrelated TTS for skipping; there is no queued TTS paired with this call.
+  playLocalPrompt(connectionError ? "server_error" : "error");
+  const uint32_t elapsed = millis() - started;
+  if (elapsed < 1000) delay(1000 - elapsed);  // Existing error-face duration.
+  // Missing SD audio must still leave the error/thinking activity and return.
+  finishExpressionActivity(Expression::Confusion);
 }
 
 void markSkipNextTtsSpeech(void)

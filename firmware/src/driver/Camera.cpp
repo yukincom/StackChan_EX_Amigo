@@ -445,7 +445,9 @@ bool camera_capture_post_upload(
   const char* transcript,
   const char* mode,
   const char* speaker,
-  const char* speaker_label
+  const char* speaker_label,
+  const char* session_id,
+  const char* action_id
 )
 {
   if (base_url.isEmpty()) {
@@ -511,6 +513,12 @@ bool camera_capture_post_upload(
   upload_url += url_encode_component(String(speaker_label ? speaker_label : ""));
   upload_url += "&mode=";
   upload_url += is_archive_mode(mode) ? "archive" : "transient";
+  if (session_id && session_id[0] && action_id && action_id[0]) {
+    upload_url += "&session_id=";
+    upload_url += url_encode_component(String(session_id));
+    upload_url += "&action_id=";
+    upload_url += url_encode_component(String(action_id));
+  }
 
   int code = -1;
   bool body_sent_completely = false;

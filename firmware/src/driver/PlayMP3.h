@@ -20,10 +20,11 @@ extern uint8_t *preallocateBuffer;
 
 extern void mp3_init(void);
 extern bool playMP3(AudioFileSourceBuffer *buff, bool checkCompletion = false);
-extern bool playMP3SPIFFS(const char *filename);
-extern bool playMP3SD(const char *filename, bool useTalkingExpression = true);
-extern bool playMP3URL(const char *url);
+extern bool playMP3SPIFFS(const char *filename, bool checkCompletion = false, bool useTalkingExpression = true);
+extern bool playMP3SD(const char *filename, bool useTalkingExpression = true, bool checkCompletion = false);
+extern bool playMP3URL(const char *url, bool checkCompletion = false, bool useTalkingExpression = true);
 extern bool playLocalPrompt(const char *endpoint);
+extern void playInputErrorPrompt(bool connectionError = false);
 extern void markSkipNextTtsSpeech(void);
 extern bool consumeSkipNextTtsSpeech(void);
 

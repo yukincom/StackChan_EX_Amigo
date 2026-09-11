@@ -54,7 +54,7 @@ int DeviceConversationTransport::post(const std::string& body, std::string& resp
   http.addHeader("Content-Type", "application/json");
   if (!config.api_key.isEmpty()) http.addHeader("Authorization", String("Bearer ") + config.api_key);
   const int status = http.POST(reinterpret_cast<uint8_t*>(const_cast<char*>(body.data())), body.size());
-  if (status == 200) {
+  if (status > 0) {
     BoundedResponse output(response);
     if (http.getSize() > int(ConversationSession::MaxResponseBytes) || http.writeToStream(&output) < 0) {
       http.end();
@@ -68,7 +68,15 @@ int DeviceConversationTransport::post(const std::string& body, std::string& resp
 
 ConversationSession& conversationSession() {
   static DeviceConversationTransport transport;
-  static ConversationSession session(transport, randomId);
+  static ConversationSession session(transport, randomId, 2);
   return session;
 }
+
+ConversationSession& touchActionSession() {
+  static DeviceConversationTransport transport;
+  static ConversationSession session(transport, randomId, 2);
+  return session;
+}
+
+std::string newConversationId() { return randomId(); }
 }  // namespace stackchan

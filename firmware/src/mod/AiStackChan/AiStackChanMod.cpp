@@ -82,7 +82,15 @@ static void report_batt_level(){
 }
 
 
-static void STT_ChatGPT(const char *base64_buf = NULL) {
+static void STT_ChatGPT(const char *base64_buf = NULL, bool deviceActions = false) {
+  if (deviceActions) {
+    auto& session = stackchan::touchActionSession();
+    if (session.pendingRetry() || is_camera_trigger_active()) return;
+    if (session.phase() == stackchan::ConversationSession::Phase::Fault) {
+      cancel_conversation_action();  // Explicit new Touch input, including Atom.
+      session.abandon();
+    }
+  }
   bool prev_servo_home = servo_home;
 #ifdef USE_SERVO
   servo_home = true;
@@ -100,7 +108,7 @@ static void STT_ChatGPT(const char *base64_buf = NULL) {
   Serial.println("音声認識結果");
   if(ret != "") {
     Serial.println(ret);
-    robot->chat(ret, base64_buf);
+    robot->chat(ret, base64_buf, deviceActions);
     restore_post_chat_expression();
     servo_home = true;
   } else {
@@ -195,7 +203,8 @@ void AiStackChanMod::init(void)
 
 void AiStackChanMod::pause(void)
 {
-  if (stackchan::conversationSession().enabled()) {
+  cancel_conversation_action();
+  if (alwaysInputSelected || stackchan::conversationSession().enabled()) {
     select_touch_input();
     stackchan::conversationSession().stop();
   }
@@ -220,7 +229,7 @@ void AiStackChanMod::set_wakeword_enabled(bool enabled)
 {
 #if defined(ENABLE_WAKEWORD)
   // Legacy commands must not replace an explicit server-managed session.
-  if (stackchan::conversationSession().enabled()) return;
+  if (alwaysInputSelected) return;
   if (robot->m_config.getExConfig().wakeword.type != WAKEWORD_TYPE_SIMPLEVOX) {
     return;
   }
@@ -255,8 +264,10 @@ void AiStackChanMod::toggle_wakeword_enabled(void)
 void AiStackChanMod::btnA_pressed(void)
 {
 #if defined(ARDUINO_M5STACK_ATOMS3R)
+  if (alwaysInputSelected || is_camera_trigger_active()
+      || stackchan::touchActionSession().pendingRetry()) return;
   sw_tone();
-  STT_ChatGPT();
+  STT_ChatGPT(NULL, true);
 #else
 
 #if defined(ENABLE_WAKEWORD)
@@ -275,7 +286,7 @@ void AiStackChanMod::btnA_pressed(void)
 void AiStackChanMod::btnB_longPressed(void)
 {
 #if defined(ENABLE_WAKEWORD)
-  if (stackchan::conversationSession().enabled()) return;
+  if (alwaysInputSelected) return;
   if (robot->m_config.getExConfig().wakeword.type != WAKEWORD_TYPE_SIMPLEVOX) {
     return;
   }
@@ -453,23 +464,29 @@ bool AiStackChanMod::display_touch_contact(unsigned count, int16_t x, int16_t y)
     auto& session = stackchan::conversationSession();
     if (action == stackchan::InputModeMenu::Action::SelectTouch) {
       select_touch_input();
+      cancel_conversation_action();
       const bool stopped = session.stop();
       avatar.setSpeechText(stopped ? "" : "タッチ\nせつぞく エラー");
       return true;
     }
     if (action == stackchan::InputModeMenu::Action::SelectAlways) {
-      if (session.enabled()) {
+      if (alwaysInputSelected && session.enabled()) {
         avatar.setSpeechText("");
         return true;  // No restart or extra start event on reselection.
       }
       select_touch_input();
+      cancel_conversation_action();
+      if (session.phase() != stackchan::ConversationSession::Phase::Off) session.stop();
+      alwaysInputSelected = true;
+      inputErrorNotified = false;
+      inputRetryAtMs = 0;
       if (isOffline || !robot->stt->supportsInterruptible()
           || !robot->tts->supportsCheckedStream()) {
-        avatar.setSpeechText("タッチ\nおんせい せっていを\nたしかめてね");
+        avatar.setSpeechText("いつでも\nおんせい せっていを\nたしかめてね");
         return true;
       }
       if (!session.start()) {
-        stop_always_input("せつぞく エラー");
+        report_input_error("せつぞく エラー", true);
         return true;
       }
     }
@@ -491,13 +508,23 @@ void AiStackChanMod::display_touched(int16_t x, int16_t y)
     return;
   }
 
-  if (stackchan::conversationSession().enabled()) {
-    if (!stackchan::conversationSession().faceTouch()) {
-      stop_always_input("せつぞく エラー");
+  if (alwaysInputSelected) {
+    auto& session = stackchan::conversationSession();
+    if (session.phase() != stackchan::ConversationSession::Phase::Listening) {
+      inputRetryAtMs = 0;
+      return;  // A failed session must not fall into legacy touch chat.
+    }
+    if (!session.faceTouch()) {
+      report_input_error("せつぞく エラー", true);
     } else {
       avatar.setSpeechText("いつでも");
     }
     return;  // Resume through the server, never through legacy robot->chat().
+  }
+  if (stackchan::touchActionSession().pendingRetry()) return;
+  if (stackchan::touchActionSession().phase() == stackchan::ConversationSession::Phase::Fault) {
+    cancel_conversation_action();
+    stackchan::touchActionSession().abandon();
   }
 
   sw_tone();
@@ -506,26 +533,27 @@ void AiStackChanMod::display_touched(int16_t x, int16_t y)
   if(isSubWindowON){
     String base64;
     bool ret = camera_capture_base64(base64);
-    STT_ChatGPT(base64.c_str());
+    STT_ChatGPT(base64.c_str(), true);
   }
   else{
-    STT_ChatGPT();
+    STT_ChatGPT(NULL, true);
   }
   avatar.set_isSubWindowEnable(isSubWindowON);
 #else
-  STT_ChatGPT();
+  STT_ChatGPT(NULL, true);
 #endif
 }
 
 void AiStackChanMod::doubleTapped(float ax, float ay, float az)
 {
   Serial.printf("Mod double tapped. ax=%.3f ay=%.3f az=%.3f\n", ax, ay, az);
-  if (is_camera_trigger_active()) {
+  if (alwaysInputSelected || is_camera_trigger_active()
+      || stackchan::touchActionSession().pendingRetry()) {
     return;
   }
 #if defined(ARDUINO_M5STACK_ATOMS3R)
   sw_tone();
-  STT_ChatGPT();
+  STT_ChatGPT(NULL, true);
 #endif
 }
 
@@ -542,7 +570,8 @@ void AiStackChanMod::idle(void)
 
   // Let a finger held on the face reach the long-press handler without
   // starting a blocking listen first. Menus pause automatic input, not alarms.
-  const bool inputUiActive = inputMenu.isOpen() || M5.Touch.getCount() != 0;
+  const bool inputUiActive = inputMenu.isOpen() || M5.Touch.getCount() != 0
+      || stackchan::touchActionSession().pendingRetry();
 
   /// Face detect ///
 #if defined(ENABLE_CAMERA)
@@ -701,8 +730,7 @@ void AiStackChanMod::idle(void)
 
   // The user enabled this session; no wakeword gate before each turn. Even in
   // quiet state send recognized speech to the server, which decides resumption.
-  if (!inputUiActive && !is_camera_trigger_active()
-      && stackchan::conversationSession().enabled()) {
+  if (!inputUiActive && !is_camera_trigger_active() && alwaysInputSelected) {
     listen_always_input();
   }
 }
@@ -710,6 +738,9 @@ void AiStackChanMod::idle(void)
 void AiStackChanMod::select_touch_input(void)
 {
   touchInputOnly = true;
+  alwaysInputSelected = false;
+  inputErrorNotified = false;
+  inputRetryAtMs = 0;
   startupSpeechClearAtMs = 0;
 #if defined(ENABLE_WAKEWORD)
   mode = 0;
@@ -722,45 +753,89 @@ void AiStackChanMod::select_touch_input(void)
 #endif
 }
 
-void AiStackChanMod::stop_always_input(const char* message)
+void AiStackChanMod::report_input_error(const char* message, bool connectionError)
 {
-  select_touch_input();
-  // No retries and no fabricated playback acknowledgement, including after a
-  // 409, partial playback or unsupported camera action. Locally off immediately.
-  stackchan::conversationSession().stop();
-  const String text = String("タッチ\n") + message;
+  const String text = String("いつでも\n") + message;
   avatar.setSpeechText(text.c_str());
-  setIdleExpression();
+  if (!inputErrorNotified) playInputErrorPrompt(connectionError);
+  finishExpressionActivity(Expression::Doubt);  // Also when audio is suppressed.
+  inputErrorNotified = true;
+  inputRetryAtMs = millis() + 1000;
+}
+
+void AiStackChanMod::handle_always_outcome(stackchan::ConversationSession::Outcome outcome)
+{
+  auto& session = stackchan::conversationSession();
+  using Outcome = stackchan::ConversationSession::Outcome;
+  if (outcome == Outcome::Failed || outcome == Outcome::Retry) {
+    const bool unsupported = session.error() == stackchan::ConversationSession::Error::UnsupportedAction;
+    report_input_error(unsupported ? "おへんじを\nたしかめてね" : "せつぞく エラー", !unsupported);
+    return;
+  }
+  if (outcome == Outcome::Perform) {
+    if (!request_conversation_action(session)) {
+      playInputErrorPrompt();
+      inputErrorNotified = true;
+      if (!session.actionCompleted(false)) report_input_error("せつぞく エラー", true);
+    }
+    return;
+  }
+  if (outcome == Outcome::Reply) {
+    const bool played = robot->speechChecked(session.replyText().c_str());
+    if (!played) {
+      playInputErrorPrompt();
+      inputErrorNotified = true;
+    }
+    // Both real success and real failure release the v2 reply barrier. An ACK
+    // retry never reaches this branch, so it cannot speak the same reply twice.
+    if (!session.playbackCompleted(played)) {
+      report_input_error("せつぞく エラー", true);
+      return;
+    }
+  }
+  inputErrorNotified = false;
+  finishExpressionActivity(Expression::Doubt);
+  avatar.setSpeechText(session.quiet() ? "いつでも\nきいているよ" : "いつでも");
 }
 
 void AiStackChanMod::listen_always_input(void)
 {
   auto& session = stackchan::conversationSession();
-  if (session.phase() != stackchan::ConversationSession::Phase::Listening) return;
-  const String transcript = robot->listenInterruptible();
-  if (transcript.isEmpty()) {
-    if (is_stt_backend_error()) stop_always_input("せつぞく エラー");
-    return;  // NoSpeech / Cancelled: no TTS, event, log or history entry.
-  }
-  const auto outcome = session.speech(transcript.c_str());
-  if (outcome == stackchan::ConversationSession::Outcome::Failed) {
-    const bool unsupported = session.error() == stackchan::ConversationSession::Error::UnsupportedAction;
-    stop_always_input(unsupported ? "この おへんじは\nまだ つかえません" : "せつぞく エラー");
+  using Phase = stackchan::ConversationSession::Phase;
+  if (conversation_action_owns(session)) return;  // Its queue owns ACK retries.
+  if (inputRetryAtMs != 0 && int32_t(millis() - inputRetryAtMs) < 0) return;
+  inputRetryAtMs = 0;
+  if (isOffline || !robot->stt->supportsInterruptible() || !robot->tts->supportsCheckedStream()) return;
+  if (session.phase() == Phase::Fault) {
+    // Protocol/input faults must not strand the selected input mode. Close the
+    // old generation once, discard its result, then start fresh next loop.
+    // Transient HTTP failures instead retain/retry the original request below.
+    session.stop();
     return;
   }
-  if (outcome == stackchan::ConversationSession::Outcome::Reply) {
-    // The pending-reply barrier remains closed until actual software playback
-    // drains and the server accepts the matching reply_id.
-    if (!robot->speechChecked(session.replyText().c_str())) {
-      stop_always_input("おんせい エラー");
-      return;
-    }
-    if (!session.playbackCompleted()) {
-      stop_always_input("せつぞく エラー");
-      return;
-    }
+  if (session.phase() == Phase::Off) {
+    if (!session.start()) report_input_error("せつぞく エラー", true);
+    else handle_always_outcome(stackchan::ConversationSession::Outcome::Listen);
+    return;
   }
-  avatar.setSpeechText(session.quiet() ? "いつでも\nきいているよ" : "いつでも");
+  if (session.pendingRetry()) {
+    inputRetryAtMs = millis() + 1000;
+    handle_always_outcome(session.retryPending());
+    return;
+  }
+  if (session.phase() != Phase::Listening) return;
+  const String transcript = robot->listenInterruptible();
+  if (transcript.isEmpty()) {
+    if (is_stt_backend_error()) report_input_error("せつぞく エラー", true);
+    return;  // NoSpeech / Cancelled: no TTS, event, log or history entry.
+  }
+  if (is_camera_trigger_active()) return;
+  setActivityExpression(Expression::Doubt);
+  const uint32_t started = millis();
+  const auto outcome = session.speech(transcript.c_str());
+  const uint32_t elapsed = millis() - started;
+  if (elapsed < 700) delay(700 - elapsed);  // Same existing chat thinking policy.
+  handle_always_outcome(outcome);
 }
 
 bool AiStackChanMod::display_long_touched(int16_t x, int16_t y)

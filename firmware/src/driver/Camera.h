@@ -32,7 +32,9 @@ extern bool camera_capture_post_upload(
   const char* transcript,
   const char* mode,
   const char* speaker,
-  const char* speaker_label
+  const char* speaker_label,
+  const char* session_id = "",
+  const char* action_id = ""
 );
 
 #endif //_CAMERA_H_

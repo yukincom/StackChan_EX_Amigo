@@ -2,6 +2,7 @@
 #define _CHAT_GPT_H
 
 #include <Arduino.h>
+#include <string>
 #include <M5Unified.h>
 #include "StackchanExConfig.h"
 #include "SpiRamJsonDocument.h"
@@ -25,8 +26,9 @@ protected:
 
 public:
     ChatGPT(llm_param_t param, int _promptMaxSize = CHATGPT_PROMPT_MAX_SIZE);
-    virtual void chat(String text, const char *base64_buf = NULL);
-    String execChatGpt(String json_string, String& calledFunc, const String& userText);
+    virtual void chat(String text, const char *base64_buf = NULL, bool deviceActions = false);
+    String execChatGpt(String json_string, String& calledFunc, const String& userText,
+                      const std::string& actionSessionId = {}, const std::string& actionEventId = {});
     String https_post_json(const char* url, const char* json_string, const char* root_ca);
     
     virtual bool init_chat_doc(const char *data);

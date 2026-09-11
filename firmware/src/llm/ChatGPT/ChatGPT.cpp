@@ -15,6 +15,7 @@
 #include "share/IdleExpression.h"
 #include "share/HttpUtil.h"
 #include "WebAPI.h"
+#include "driver/ConversationEvents.h"
 
 using namespace m5avatar;
 extern Avatar avatar;
@@ -276,7 +277,7 @@ String ChatGPT::https_post_json(const char* url, const char* json_string, const 
 
 
 #define MAX_REQUEST_COUNT  (10)
-void ChatGPT::chat(String text, const char *base64_buf) {
+void ChatGPT::chat(String text, const char *base64_buf, bool deviceActions) {
   static String response = "";
   String calledFunc = "";
   //String funcCallMode = "auto";
@@ -344,6 +345,17 @@ void ChatGPT::chat(String text, const char *base64_buf) {
 
     }
 
+    // Touch retains this chat/function-call path. Only custom local servers
+    // receive the opt-in for one-shot camera/song actions (FW-005).
+    std::string actionSessionId;
+    std::string actionEventId;
+    if (deviceActions && !param.llm_conf.base_url.isEmpty()) {
+      actionSessionId = stackchan::newConversationId();
+      actionEventId = stackchan::newConversationId();
+      chat_doc["stackchan_device"]["action_schema_version"] = 2;
+      chat_doc["stackchan_device"]["session_id"] = actionSessionId;
+      chat_doc["stackchan_device"]["event_id"] = actionEventId;
+    }
     String json_string;
     serializeJson(chat_doc, json_string);
 
@@ -352,11 +364,13 @@ void ChatGPT::chat(String text, const char *base64_buf) {
     Serial.println(json_string);
     Serial.println("====================");
 
-    response = execChatGpt(json_string, calledFunc, text);
+    response = execChatGpt(json_string, calledFunc, text, actionSessionId, actionEventId);
 
 
     if(calledFunc == ""){   // Function Callなし ／ Function Call繰り返しの完了
-      if (response != "") {
+      if (response != ""
+          && !conversation_action_owns(stackchan::conversationSession())
+          && !conversation_action_owns(stackchan::touchActionSession())) {
         clear_camera_trigger_awaiting();
       }
       if (response != "") {
@@ -377,7 +391,9 @@ void ChatGPT::chat(String text, const char *base64_buf) {
   chatHistory.clean_function_role();
 }
 
-String ChatGPT::execChatGpt(String json_string, String& calledFunc, const String& userText) {
+String ChatGPT::execChatGpt(String json_string, String& calledFunc, const String& userText,
+                          const std::string& actionSessionId, const std::string& actionEventId) {
+  calledFunc = "";  // A failed round must not repeat the preceding function call.
   String response = "";
   const uint32_t thinkingStartedAt = millis();
   bool keepThinkingUntilReturn = true;
@@ -389,7 +405,7 @@ String ChatGPT::execChatGpt(String json_string, String& calledFunc, const String
   String ret = https_post_json(chat_url.c_str(), json_string.c_str(), root_ca);
   Serial.println(ret);
   if(ret != ""){
-    DynamicJsonDocument doc(2000);
+    DynamicJsonDocument doc(8192);
     DeserializationError error = deserializeJson(doc, ret.c_str());
     if (error) {
       Serial.print(F("deserializeJson() failed: "));
@@ -401,6 +417,21 @@ String ChatGPT::execChatGpt(String json_string, String& calledFunc, const String
       markSkipNextTtsSpeech();
       delay(1000);
       setIdleExpression();
+    }else if (!doc["stackchan_device"].isNull()) {
+      calledFunc = "";
+      auto& session = stackchan::touchActionSession();
+      if (actionSessionId.empty() || actionEventId.empty()
+          || !session.adoptTouchAction(actionSessionId, actionEventId,
+                                      doc["stackchan_device"].as<JsonVariantConst>())) {
+        keepThinkingUntilReturn = false;
+        playInputErrorPrompt();
+      } else if (!request_conversation_action(session)) {
+        keepThinkingUntilReturn = false;
+        playInputErrorPrompt();
+        session.actionCompleted(false);
+      }
+      // An action is not spoken text and must not enter chat history/TTS.
+      response = "";
     }else{
       const char* data = doc["choices"][0]["message"]["content"];
       

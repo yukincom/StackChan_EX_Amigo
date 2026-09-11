@@ -580,16 +580,16 @@ void loop()
 #endif
   //get_elapsed_time_micro("Callback process time");
 
-  // Dispatch touch release before an idle path can start blocking STT.
-  // A flick may have switched modules, so reacquire rather than using mod.
-  get_current_mod()->idle();
-
   if(!isOffline){
     web_server_handle_client();
     process_play_request();
     process_camera_trigger_request();
     ftpSrv.handleFTP();
   }
+
+  // Dispatch touch and queued camera/audio before starting another recording.
+  // A flick may have switched modules, so reacquire rather than using mod.
+  get_current_mod()->idle();
 
   //get_elapsed_time_micro("Web event process time");
   

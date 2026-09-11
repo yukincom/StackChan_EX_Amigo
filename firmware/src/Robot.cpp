@@ -146,7 +146,7 @@ String Robot::listenInterruptible()
   return stt->speech_to_text_interruptible();
 }
 
-void Robot::chat(String text, const char *base64_buf)
+void Robot::chat(String text, const char *base64_buf, bool deviceActions)
 {
-  llm->chat(text, base64_buf);
+  llm->chat(text, base64_buf, deviceActions);
 }

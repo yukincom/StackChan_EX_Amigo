@@ -8,6 +8,7 @@
 #include "Robot.h"
 #include "share/IdleExpression.h"
 #include "driver/PlayMP3.h"
+#include "driver/ConversationEvents.h"
 #if defined(ENABLE_CAMERA)
 #include "driver/Camera.h"
 #endif
@@ -33,6 +34,59 @@ static String s_camera_trigger_mode = "transient";
 static String s_camera_trigger_speaker = "master";
 static String s_camera_trigger_speaker_label = "";
 static String s_camera_trigger_announce_endpoint = "";
+// This only links the existing camera/play queues to their owning session.
+// It never owns a recording/decoder loop or changes the selected input mode.
+static stackchan::ConversationSession* s_action_session = nullptr;
+static bool s_action_finished = false;
+static uint32_t s_action_retry_at = 0;
+static bool s_camera_wait_expired = false;
+static bool s_play_action_succeeded = true;
+
+static void finish_conversation_action(bool succeeded, bool errorPresented = false) {
+  if (!s_action_session || s_action_finished) return;
+  clear_camera_trigger_awaiting();
+  s_action_finished = true;  // Close push admission before playing an error.
+  if (!succeeded && !errorPresented) playInputErrorPrompt();
+  if (s_action_session->actionCompleted(succeeded)) {
+    s_action_session = nullptr;
+    s_action_finished = false;
+  } else {
+    // Retry only the immutable completion event, never the camera/song audio.
+    s_action_retry_at = millis() + 1000;
+  }
+}
+
+static void process_conversation_completion() {
+  // If a one-shot action could not enter the physical queue, its failed ACK
+  // still has an owner here. Never strand Touch behind an orphaned retry.
+  auto& touchSession = stackchan::touchActionSession();
+  static uint32_t touchRetryAt = 0;
+  if (s_action_session != &touchSession) {
+    if (touchSession.phase() == stackchan::ConversationSession::Phase::Fault) touchSession.stop();
+    else if (touchSession.pendingRetry()
+        && (touchRetryAt == 0 || int32_t(millis() - touchRetryAt) >= 0)) {
+      touchSession.retryPending();
+      touchRetryAt = millis() + 1000;
+    }
+  }
+  if (!s_action_session || !s_action_finished) return;
+  auto& session = *s_action_session;
+  if (session.phase() == stackchan::ConversationSession::Phase::Fault) {
+    session.stop();  // Best-effort close; never replay the completed action.
+    s_action_session = nullptr;
+    s_action_finished = false;
+    return;  // AiStackChan's selected Always mode can start a fresh session.
+  }
+  if (!session.pendingRetry() || int32_t(millis() - s_action_retry_at) < 0) return;
+  const auto outcome = session.retryPending();
+  if (outcome == stackchan::ConversationSession::Outcome::Listen
+      || outcome == stackchan::ConversationSession::Outcome::Stopped) {
+    s_action_session = nullptr;
+    s_action_finished = false;
+  } else {
+    s_action_retry_at = millis() + 1000;
+  }
+}
 
 static bool is_camera_trigger_awaiting_now() {
   if (!s_camera_trigger_awaiting) {
@@ -41,7 +95,7 @@ static bool is_camera_trigger_awaiting_now() {
   if ((int32_t)(millis() - s_camera_trigger_await_deadline) >= 0) {
     s_camera_trigger_awaiting = false;
     s_camera_trigger_await_deadline = 0;
-    finishExpressionActivity(Expression::Doubt);
+    s_camera_wait_expired = true;  // Present errors only from the main loop.
     return false;
   }
   return true;
@@ -58,7 +112,33 @@ void clear_camera_trigger_awaiting(void) {
 }
 
 bool is_camera_trigger_active(void) {
-  return g_cameraBusy || s_camera_trigger_pending || is_camera_trigger_awaiting_now() || s_play_request_pending || s_play_active;
+  return g_cameraBusy || s_camera_trigger_pending || is_camera_trigger_awaiting_now()
+      || s_camera_wait_expired || s_play_request_pending || s_play_active
+      || (s_action_session && !s_action_finished);
+}
+
+void cancel_conversation_action(void) {
+  auto& touchSession = stackchan::touchActionSession();
+  if (s_action_session != &touchSession
+      && touchSession.phase() != stackchan::ConversationSession::Phase::Off) {
+    touchSession.stop();  // Also cancel an unqueued one-shot ACK/recovery.
+  }
+  if (!s_action_session) return;
+  // Called by explicit mode selection/app exit, never by a processing error.
+  s_action_session->stop();
+  s_action_session = nullptr;
+  s_action_finished = false;
+  s_play_request_pending = false;
+  s_camera_trigger_pending = false;
+  s_camera_wait_expired = false;
+  s_play_voice_url = "";
+  s_play_local_endpoint = "";
+  clear_camera_trigger_awaiting();
+  finishExpressionActivity(Expression::Doubt);
+}
+
+bool conversation_action_owns(const stackchan::ConversationSession& session) {
+  return s_action_session == &session;
 }
 
 static String resolve_camera_trigger_base_url()
@@ -111,8 +191,39 @@ bool request_camera_trigger(
   const String& announce_endpoint
 )
 {
+  if (s_action_session) return false;
   String base_url = resolve_camera_trigger_base_url();
   return enqueue_camera_trigger_internal(base_url, requester, context, mode, speaker, speaker_label, announce_endpoint);
+}
+
+bool request_conversation_action(stackchan::ConversationSession& session) {
+  using Session = stackchan::ConversationSession;
+  if (s_action_session || is_camera_trigger_active()
+      || session.phase() != Session::Phase::ActionPending) return false;
+  s_action_session = &session;
+  s_action_finished = false;
+  const auto& action = session.deviceAction();
+  if (action.type == "camera_capture") {
+#if defined(ENABLE_CAMERA)
+    if (!enqueue_camera_trigger_internal(resolve_camera_trigger_base_url(),
+          action.cameraRequester.c_str(), action.transcript.c_str(),
+          action.cameraMode.c_str(), action.speaker.c_str(), action.speakerLabel.c_str(),
+          action.announceEndpoint.c_str())) {
+      finish_conversation_action(false);
+    }
+#else
+    finish_conversation_action(false);
+#endif
+  } else if (action.type == "audio_playback") {
+    s_play_voice_url = action.audioUrl.c_str();
+    s_play_local_endpoint = "";
+    s_play_local = false;
+    s_play_action_succeeded = true;
+    s_play_request_pending = true;
+  } else {
+    finish_conversation_action(false);
+  }
+  return true;
 }
 
 static bool is_safe_local_audio_endpoint(const String& endpoint) {
@@ -125,6 +236,66 @@ static bool is_safe_local_audio_endpoint(const String& endpoint) {
   if (endpoint.indexOf("..") >= 0) {
     return false;
   }
+  return true;
+}
+
+// True means the request may enter the existing queue. An accepted duplicate
+// returns its original acknowledgement without altering the queued playback.
+static bool admit_action_push(JsonVariantConst doc, bool& duplicate) {
+  using Session = stackchan::ConversationSession;
+  duplicate = false;
+  const bool correlated = !doc["session_id"].isNull() || !doc["action_id"].isNull()
+      || !doc["action_status"].isNull();
+  if (!correlated) {
+    if (!s_action_session) return true;
+    server.send(409, "application/json", "{\"success\":false,\"error\":\"device_action_pending\"}");
+    return false;
+  }
+  if (!doc["session_id"].is<const char*>() || !doc["action_id"].is<const char*>()
+      || !doc["action_status"].is<const char*>()) {
+    server.send(400, "application/json", "{\"success\":false,\"error\":\"invalid_action_correlation\"}");
+    return false;
+  }
+  const std::string sessionId = doc["session_id"].as<std::string>();
+  const std::string actionId = doc["action_id"].as<std::string>();
+  const std::string status = doc["action_status"].as<std::string>();
+  if (!Session::validId(sessionId) || !Session::validId(actionId)
+      || (status != "succeeded" && status != "failed")) {
+    server.send(400, "application/json", "{\"success\":false,\"error\":\"invalid_action_correlation\"}");
+    return false;
+  }
+  if ((!doc["voice_url"].isNull() && (!doc["voice_url"].is<const char*>()
+          || !Session::validAudioUrl(doc["voice_url"].as<std::string>())))
+      || (!doc["endpoint"].isNull() && (!doc["endpoint"].is<const char*>()
+          || !Session::validEndpoint(doc["endpoint"].as<std::string>())))) {
+    server.send(400, "application/json", "{\"success\":false,\"error\":\"invalid_action_audio\"}");
+    return false;
+  }
+  const bool awaiting = is_camera_trigger_awaiting_now();
+  if (!s_action_session || s_action_finished || s_camera_wait_expired
+      || s_action_session->phase() != Session::Phase::ActionPending
+      || s_action_session->sessionId() != sessionId
+      || s_action_session->deviceAction().actionId != actionId
+      || s_action_session->deviceAction().type != "camera_capture") {
+    server.send(409, "application/json", "{\"success\":false,\"error\":\"action_id_mismatch\"}");
+    return false;
+  }
+  if (s_play_request_pending || s_play_active) {
+    const bool same = s_play_action_succeeded == (status == "succeeded")
+        && ((s_play_local && doc["endpoint"].as<String>() == s_play_local_endpoint)
+            || (!s_play_local && doc["voice_url"].as<String>() == s_play_voice_url));
+    if (!same) {
+      server.send(409, "application/json", "{\"success\":false,\"error\":\"action_payload_mismatch\"}");
+      return false;
+    }
+    duplicate = true;
+    return true;
+  }
+  if (!awaiting) {
+    server.send(409, "application/json", "{\"success\":false,\"error\":\"action_not_awaiting\"}");
+    return false;
+  }
+  s_play_action_succeeded = status == "succeeded";
   return true;
 }
 
@@ -174,6 +345,10 @@ void handleNotFound(){
 }
 
 void handle_speech() {
+  if (s_action_session || is_camera_trigger_active()) {
+    server.send(409, "application/json", "{\"success\":false,\"error\":\"device_action_pending\"}");
+    return;
+  }
   String message = server.arg("say");
   String speaker = server.arg("voice");
   //if(speaker != "") {
@@ -189,6 +364,10 @@ void handle_speech() {
 }
 
 void handle_chat() {
+  if (s_action_session || is_camera_trigger_active()) {
+    server.send(409, "application/json", "{\"success\":false,\"error\":\"device_action_pending\"}");
+    return;
+  }
   static String response = "";
   // tts_parms_no = 1;
   String text = server.arg("text");
@@ -224,7 +403,7 @@ void handle_play() {
     return;
   }
 
-  DynamicJsonDocument doc(512);
+  DynamicJsonDocument doc(4096);
   DeserializationError error = deserializeJson(doc, server.arg("plain"));
   if (error) {
     server.send(400, "application/json", "{\"success\":false,\"error\":\"invalid_json\"}");
@@ -237,13 +416,19 @@ void handle_play() {
     return;
   }
 
-  clear_camera_trigger_awaiting();
+  bool duplicate = false;
+  if (!admit_action_push(doc.as<JsonVariantConst>(), duplicate)) return;
+  if (duplicate) {
+    server.send(200, "application/json", "{\"success\":true}");
+    return;
+  }
 
   if (s_play_request_pending || s_play_active) {
     server.send(409, "application/json", "{\"success\":false,\"error\":\"play_busy\"}");
     return;
   }
 
+  clear_camera_trigger_awaiting();
   s_play_voice_url = voice_url;
   s_play_local_endpoint = "";
   s_play_local = false;
@@ -270,13 +455,19 @@ void handle_play_local() {
     return;
   }
 
-  clear_camera_trigger_awaiting();
+  bool duplicate = false;
+  if (!admit_action_push(doc.as<JsonVariantConst>(), duplicate)) return;
+  if (duplicate) {
+    server.send(200, "application/json", "{\"success\":true}");
+    return;
+  }
 
   if (s_play_request_pending || s_play_active) {
     server.send(409, "application/json", "{\"success\":false,\"error\":\"play_busy\"}");
     return;
   }
 
+  clear_camera_trigger_awaiting();
   s_play_voice_url = "";
   s_play_local_endpoint = endpoint;
   s_play_local = true;
@@ -306,6 +497,7 @@ void handle_audio_status() {
 
 void process_play_request(void)
 {
+  process_conversation_completion();
   if (!s_play_request_pending || g_cameraBusy) {
     return;
   }
@@ -319,18 +511,28 @@ void process_play_request(void)
   s_play_local = false;
   s_play_active = true;
 
+  const bool errorAudio = s_action_session && !s_play_action_succeeded;
+  if (errorAudio) setActivityExpression(Expression::Confusion);
   bool result = false;
   if (local_play) {
     String sd_path = "/stack_sd_audio/" + local_endpoint + ".mp3";
     Serial.printf("[PLAY-LOCAL] %s\n", sd_path.c_str());
-    result = playMP3SD(sd_path.c_str());
+    result = playMP3SD(sd_path.c_str(), !errorAudio, s_action_session != nullptr);
     Serial.printf("[PLAY-LOCAL] result=%s\n", result ? "ok" : "ng");
   } else {
     Serial.printf("[PLAY] %s\n", voice_url.c_str());
-    result = playMP3URL(voice_url.c_str());
+    result = playMP3URL(voice_url.c_str(), s_action_session != nullptr, !errorAudio);
     Serial.printf("[PLAY] result=%s\n", result ? "ok" : "ng");
   }
   s_play_active = false;
+  if (errorAudio) finishExpressionActivity(Expression::Confusion);
+  if (s_action_session && !s_action_finished) {
+    // A delivered server failure explanation is already the error prompt.
+    // Only failed delivery itself needs the local cached fallback.
+    finish_conversation_action(result && s_play_action_succeeded, errorAudio && result);
+  } else if (!result) {
+    playInputErrorPrompt();
+  }
 }
 
 void handle_camera_trigger() {
@@ -349,7 +551,7 @@ void handle_camera_trigger() {
     return;
   }
 
-  if (s_camera_trigger_pending || g_cameraBusy) {
+  if (s_action_session || s_camera_trigger_pending || g_cameraBusy) {
     server.send(409, "application/json", "{\"success\":false,\"error\":\"camera_busy\"}");
     return;
   }
@@ -387,6 +589,14 @@ void handle_camera_trigger() {
 
 void process_camera_trigger_request(void)
 {
+  // Timeout discovery may occur in a read-only status/touch query. Perform
+  // the one-time feedback and completion here, outside the recorder/handler.
+  is_camera_trigger_awaiting_now();
+  if (s_camera_wait_expired) {
+    s_camera_wait_expired = false;
+    if (s_action_session) finish_conversation_action(false);
+    else playInputErrorPrompt();
+  }
 #if defined(ENABLE_CAMERA)
   if (!s_camera_trigger_pending || g_cameraBusy) {
     return;
@@ -424,15 +634,18 @@ void process_camera_trigger_request(void)
     context.c_str(),
     mode.c_str(),
     speaker.c_str(),
-    speaker_label.c_str()
+    speaker_label.c_str(),
+    s_action_session ? s_action_session->sessionId().c_str() : "",
+    s_action_session ? s_action_session->deviceAction().actionId.c_str() : ""
   );
   avatar.set_isSubWindowEnable(isSubWindowON);
   g_cameraBusy = false;
   if (result) {
     mark_camera_trigger_awaiting();
   } else {
-    setIdleExpression();
     clear_camera_trigger_awaiting();
+    if (s_action_session) finish_conversation_action(false);
+    else playInputErrorPrompt();
   }
   Serial.printf("[CAMERA_TRIGGER] result=%s\n", result ? "ok" : "ng");
 #endif

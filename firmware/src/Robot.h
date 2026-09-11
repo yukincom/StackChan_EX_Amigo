@@ -30,7 +30,7 @@ public:
     bool speechChecked(String text);
     String listen();
     String listenInterruptible();
-    void chat(String text, const char *base64_buf = NULL);
+    void chat(String text, const char *base64_buf = NULL, bool deviceActions = false);
 };
 
 extern Robot* robot;

@@ -45,7 +45,7 @@ public:
   bool isOfflineService;
 
   LLMBase(llm_param_t param, int _promptMaxSize);
-  virtual void chat(String text, const char *base64_buf = NULL) = 0;
+  virtual void chat(String text, const char *base64_buf = NULL, bool deviceActions = false) = 0;
   virtual bool init_chat_doc(const char *data) { return false; };  //TODO: LLMBaseで実装してもよいかも
   virtual void load_role() {};
   bool save_userRole(String role);

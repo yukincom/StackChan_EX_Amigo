@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include "mod/ModBase.h"
 #include "share/InputModeMenu.h"
+#include "share/ConversationSession.h"
 
 class AiStackChanMod: public ModBase{
 private:
@@ -20,6 +21,9 @@ private:
     bool isOffline;
     stackchan::InputModeMenu inputMenu;
     bool touchInputOnly = false;  // Preserve the configured legacy startup path.
+    bool alwaysInputSelected = false;  // User intent, never inferred from HTTP state.
+    bool inputErrorNotified = false;
+    uint32_t inputRetryAtMs = 0;
     bool isQrDrawing = false;
     unsigned long textWakewordNextCheckMs = 0;
     unsigned long startupSpeechClearAtMs = 0;
@@ -30,7 +34,8 @@ private:
     void draw_input_menu(void);
     void close_input_menu(void);
     void select_touch_input(void);
-    void stop_always_input(const char* message);
+    void report_input_error(const char* message, bool connectionError);
+    void handle_always_outcome(stackchan::ConversationSession::Outcome outcome);
     void listen_always_input(void);
 public:
     AiStackChanMod(bool _isOffline);
