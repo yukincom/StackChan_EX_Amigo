@@ -15,13 +15,12 @@ struct Canvas {
   struct Rect { int x, y, width, height, color; };
   struct Text { std::string value; int x, y; };
   int background = -1, foreground = -1, textBackground = -1;
-  int textSize = -1, datum = -1;
+  int textSize = -1;
   std::vector<Rect> rectangles;
   std::vector<Text> texts;
   void fillScreen(int color) { background = color; }
   void setTextColor(int front, int back) { foreground = front; textBackground = back; }
   void setTextSize(int size) { textSize = size; }
-  void setTextDatum(int value) { datum = value; }
   void fillRect(int x, int y, int w, int h, int color) {
     rectangles.push_back({x, y, w, h, color});
   }
@@ -29,11 +28,12 @@ struct Canvas {
 };
 
 int main() {
-  // Production drawing: two large white buttons, centered black labels only.
+  // Production geometry: two large white buttons and black labels. The
+  // M5GFX adapter's actual center datum is checked by input_mode_menu_view.cpp.
   Canvas canvas;
   Menu::drawButtons(canvas);
   assert(canvas.background == 0 && canvas.foreground == 0);
-  assert(canvas.textBackground == 0xffff && canvas.textSize == 1 && canvas.datum == 4);
+  assert(canvas.textBackground == 0xffff && canvas.textSize == 1);
   assert(canvas.rectangles.size() == 2 && canvas.texts.size() == 2);
   for (unsigned i = 0; i < 2; ++i) {
     const auto& rect = canvas.rectangles[i];

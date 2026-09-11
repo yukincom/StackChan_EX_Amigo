@@ -45,7 +45,6 @@ class InputModeMenu {
     canvas.fillScreen(0x0000);
     canvas.setTextColor(0x0000, 0xffff);
     canvas.setTextSize(1);
-    canvas.setTextDatum(4);  // M5GFX middle_center: both axes centered.
     canvas.fillRect(Left, TouchTop, Width, Height, 0xffff);
     canvas.drawString("タッチ", Left + Width / 2, TouchTop + Height / 2);
     canvas.fillRect(Left, AlwaysTop, Width, Height, 0xffff);

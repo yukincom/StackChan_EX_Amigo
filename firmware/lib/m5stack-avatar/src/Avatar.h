@@ -6,6 +6,7 @@
 #define AVATAR_H_
 #include "ColorPalette.h"
 #include "Face.h"
+#include "SpeechText.h"
 #include <M5GFX.h>
 
 namespace m5avatar {
@@ -22,7 +23,7 @@ class Avatar {
   float rotation;
   float scale;
   ColorPalette palette;
-  const char *speechText;
+  SpeechText speechText;
   int colorDepth;
   BatteryIconStatus batteryIconStatus;
   int32_t batteryLevel;

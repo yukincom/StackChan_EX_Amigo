@@ -79,7 +79,6 @@ Avatar::Avatar(Face *face)
       rotation{0},
       scale{1},
       palette{ColorPalette()},
-      speechText{""},
       colorDepth{1},
       fadeoutDoneFlag{true},
       fadeoutDirection{true},
@@ -148,10 +147,13 @@ void Avatar::start(int colorDepth) {
 }
 
 void Avatar::draw() {
+  // DrawContext borrows this pointer only until face->draw() returns. A setter
+  // on another task cannot invalidate or change this frame's snapshot.
+  const std::string frameSpeechText = speechText.snapshot();
   Gaze g = Gaze(this->gazeV, this->gazeH);
   DrawContext *ctx = new DrawContext(this->expression, this->breath,
                                      &this->palette, g, this->eyeOpenRatio,
-                                     this->mouthOpenRatio, this->speechText,
+                                     this->mouthOpenRatio, frameSpeechText.c_str(),
                                      this->rotation, this->scale, this->colorDepth, this->batteryIconStatus, this->batteryLevel, this->speechFont);
   face->draw(ctx);
   delete ctx;
@@ -200,7 +202,7 @@ void Avatar::getGaze(float *vertical, float *horizontal) {
 }
 
 void Avatar::setSpeechText(const char *speechText) {
-  this->speechText = speechText;
+  this->speechText.set(speechText);
 }
 
 void Avatar::setSpeechFont(const lgfx::IFont *speechFont) {
