@@ -29,6 +29,11 @@ int main() {
   out.begin();
   assert(out.getLevel() == 0);
   assert(!out.playbackDelivered());
+  assert(!out.hasDecodedAudio());
+  out.SetRate(0);
+  assert(!out.hasDecodedAudio());
+  out.SetRate(24000);
+  assert(out.hasDecodedAudio());
   for (int16_t value : wave) {
     int16_t sample[] = {value, value};
     assert(out.ConsumeSample(sample));
@@ -51,6 +56,7 @@ int main() {
   assert(!out.playbackDelivered());
   speaker.accepted = true;
   out.begin();
+  assert(!out.hasDecodedAudio());  // The previous stream's rate is not proof.
   out.setDrainOnStop(true);
   out.ConsumeSample(sample);
   speaker.queued = 4;

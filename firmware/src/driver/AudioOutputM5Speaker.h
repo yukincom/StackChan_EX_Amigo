@@ -22,7 +22,15 @@ class AudioOutputM5Speaker : public AudioOutput
       _rms_level.store(0);
       _had_pcm = false;
       _output_failed = false;
+      _decoded_audio = false;
       return true;
+    }
+    virtual bool SetRate(int hz) override {
+      const bool accepted = AudioOutput::SetRate(hz);
+      // AudioGeneratorMP3 sets the rate only after decoding a valid frame.
+      // Its initial zero sample alone is not evidence of decoded audio.
+      _decoded_audio = _decoded_audio || (accepted && hz > 0);
+      return accepted;
     }
     virtual bool ConsumeSample(int16_t sample[2]) override
     {
@@ -88,6 +96,7 @@ class AudioOutputM5Speaker : public AudioOutput
     const uint32_t getUpdateCount(void) const { return _update_count; }
     void setDrainOnStop(bool enabled) { _drain_on_stop = enabled; }
     bool playbackDelivered() const { return _had_pcm && !_output_failed; }
+    bool hasDecodedAudio() const { return _decoded_audio; }
 
   protected:
     m5::Speaker_Class* _m5sound;
@@ -102,6 +111,7 @@ class AudioOutputM5Speaker : public AudioOutput
     bool _drain_on_stop = false;
     bool _had_pcm = false;
     bool _output_failed = false;
+    bool _decoded_audio = false;
 };
 
 #define FFT_SIZE 256

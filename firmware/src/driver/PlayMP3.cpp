@@ -12,6 +12,7 @@
 #include "AudioFileSourceSPIFFS.h"
 #include "AudioOutputM5Speaker.h"
 #include "PlayMP3.h"
+#include "Mp3Playback.h"
 #include "Avatar.h"
 #include "share/IdleExpression.h"
 
@@ -65,41 +66,13 @@ bool playMP3(AudioFileSourceBuffer *buff, bool checkCompletion){
 
   M5.Mic.end();
   M5.Speaker.begin();
-  out.setDrainOnStop(checkCompletion);
-  bool decodeError = false;
-  bool decoderReachedEof = false;
-  mp3->RegisterStatusCB([](void* context, int code, const char*) {
-    // BUFLEN asks for more input during normal decoding. Exhausting its retry
-    // limit stops the decoder internally and is caught by isRunning below.
-    if (code != MAD_ERROR_BUFLEN) *static_cast<bool*>(context) = true;
-  }, &decodeError);
-
-  if (!mp3->begin(buff, &out)) {
-    Serial.println("failed to start mp3 decoder");
-    M5.Speaker.end();
-    M5.Mic.begin();
-    out.setDrainOnStop(false);
-    mp3->RegisterStatusCB(nullptr, nullptr);
-    return false;
-  }
   Serial.println("mp3 start");
-
-  while(mp3->isRunning()) {
-    if (!mp3->loop()) {
-      // Natural EOF returns false without clearing running. Decode failures
-      // either report a status or stop internally; neither is played-complete.
-      decoderReachedEof = mp3->isRunning();
-      mp3->stop();
-      Serial.println("mp3 stop");
-    }
-    delay(1);
-  }
+  const bool result = stackchan::decodeMp3(*mp3, *buff, out, checkCompletion);
+  Serial.println("mp3 stop");
 
   M5.Speaker.end();
   M5.Mic.begin();
-  out.setDrainOnStop(false);
-  mp3->RegisterStatusCB(nullptr, nullptr);
-  return !checkCompletion || (decoderReachedEof && !decodeError && out.playbackDelivered());
+  return result;
 }
 
 bool playMP3SPIFFS(const char *filename)

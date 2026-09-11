@@ -6,6 +6,7 @@
 #include "tts/OpenAITTS.h"
 #include "SpiRamJsonDocument.h"
 #include "driver/PlayMP3.h"
+#include "driver/Mp3Playback.h"
 #include "AudioFileSourceHttpsPostStream.h"
 #include "llm/ChatGPT/ChatGPT.h"    // for API key
 #include "share/HttpUtil.h"
@@ -83,7 +84,7 @@ bool OpenAITTS::streamImpl(String text, bool checkCompletion){
   // The local server supplies a finite MP3. For an acknowledgement, EOF must
   // cover its advertised length; a decoder return alone also covers failures.
   const uint32_t size = stream->getSize();
-  const bool complete = size > 0 && size != UINT32_MAX && stream->getPos() >= size;
+  const bool complete = stackchan::mp3BodyComplete(size, stream->getPos());
   delete buff;
   delete stream;
   return played && (!checkCompletion || complete);
