@@ -1,6 +1,7 @@
 # services/chat_service.py
 """チャットサービスモジュール"""
 
+import re
 import traceback
 import threading
 import time
@@ -112,19 +113,49 @@ def _detect_camera_mode(user_text: str) -> str | None:
     return None
 
 
+_AI_CAMERA_MARKER_PATTERNS = {
+    "archive": re.compile(
+        r"(?:\[\[|\${1,2}|`+)?\s*VISION(?:\\?[_-]|\s)+ARCHIVE"
+        r"(?:\\?[_-]|\s)+TRIGGER\s*(?:\]\]|\${1,2}|`+)?",
+        re.IGNORECASE,
+    ),
+    "transient": re.compile(
+        r"(?:\[\[|\${1,2}|`+)?\s*VISION(?:\\?[_-]|\s)+TRANSIENT"
+        r"(?:\\?[_-]|\s)+TRIGGER\s*(?:\]\]|\${1,2}|`+)?",
+        re.IGNORECASE,
+    ),
+}
+
+
 def _extract_ai_camera_mode(ai_response: str) -> tuple[str, str | None]:
     text = (ai_response or "").strip()
     if not text:
         return "", None
 
-    archive_marker = config.AI_VISION_ARCHIVE_MARKER.strip()
-    transient_marker = config.AI_VISION_TRANSIENT_MARKER.strip()
+    detected_modes: set[str] = set()
+    cleaned = text
+    configured_markers = {
+        "archive": config.AI_VISION_ARCHIVE_MARKER.strip(),
+        "transient": config.AI_VISION_TRANSIENT_MARKER.strip(),
+    }
 
-    if archive_marker and archive_marker in text:
-        return text.replace(archive_marker, "").strip(), "archive"
-    if transient_marker and transient_marker in text:
-        return text.replace(transient_marker, "").strip(), "transient"
-    return text, None
+    for mode, marker in configured_markers.items():
+        if marker and marker in cleaned:
+            detected_modes.add(mode)
+            cleaned = cleaned.replace(marker, " ")
+
+    for mode, pattern in _AI_CAMERA_MARKER_PATTERNS.items():
+        if pattern.search(cleaned):
+            detected_modes.add(mode)
+            cleaned = pattern.sub(" ", cleaned)
+
+    cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
+    if not cleaned and len(detected_modes) == 1:
+        return "", next(iter(detected_modes))
+
+    # A marker mixed into a real answer is a model-output leak, not a camera
+    # request.  Remove the internal token before memory, display, and TTS.
+    return cleaned, None
 
 
 def _camera_trigger_marker(camera_mode: str) -> str:

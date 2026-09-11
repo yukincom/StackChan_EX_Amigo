@@ -44,3 +44,66 @@ def test_legacy_song_request_still_pushes_immediately(monkeypatch):
 
     assert result == {"success": True, "response": "うたうよ～！", "error": None}
     assert pushed == ["http://127.0.0.1:5001/song/fixture-song"]
+
+
+def test_ai_camera_marker_only_triggers_camera(monkeypatch):
+    monkeypatch.setattr(
+        chat_service.config,
+        "AI_VISION_ARCHIVE_MARKER",
+        "[[VISION_ARCHIVE_TRIGGER]]",
+    )
+    monkeypatch.setattr(
+        chat_service.config,
+        "AI_VISION_TRANSIENT_MARKER",
+        "[[VISION_TRANSIENT_TRIGGER]]",
+    )
+
+    cases = [
+        ("[[VISION_TRANSIENT_TRIGGER]]", "transient"),
+        ("$$VISION_TRANSIENT_TRIGGER$$", "transient"),
+        (r"$$VISION\_TRANSIENT\_TRIGGER$$", "transient"),
+        ("[[VISION_ARCHIVE_TRIGGER]]", "archive"),
+    ]
+    for response, expected_mode in cases:
+        assert chat_service._extract_ai_camera_mode(response) == ("", expected_mode)
+
+
+def test_ai_camera_marker_leak_is_removed_without_triggering_camera(monkeypatch):
+    monkeypatch.setattr(
+        chat_service.config,
+        "AI_VISION_ARCHIVE_MARKER",
+        "[[VISION_ARCHIVE_TRIGGER]]",
+    )
+    monkeypatch.setattr(
+        chat_service.config,
+        "AI_VISION_TRANSIENT_MARKER",
+        "[[VISION_TRANSIENT_TRIGGER]]",
+    )
+
+    markers = [
+        "[[VISION_TRANSIENT_TRIGGER]]",
+        "$$VISION_TRANSIENT_TRIGGER$$",
+        r"$$VISION\_TRANSIENT\_TRIGGER$$",
+    ]
+    for marker in markers:
+        response = f"バナナケーキはしっとり焼けるよ。 {marker}"
+        assert chat_service._extract_ai_camera_mode(response) == (
+            "バナナケーキはしっとり焼けるよ。",
+            None,
+        )
+
+
+def test_ambiguous_camera_markers_are_removed_without_trigger(monkeypatch):
+    monkeypatch.setattr(
+        chat_service.config,
+        "AI_VISION_ARCHIVE_MARKER",
+        "[[VISION_ARCHIVE_TRIGGER]]",
+    )
+    monkeypatch.setattr(
+        chat_service.config,
+        "AI_VISION_TRANSIENT_MARKER",
+        "[[VISION_TRANSIENT_TRIGGER]]",
+    )
+
+    response = "[[VISION_TRANSIENT_TRIGGER]][[VISION_ARCHIVE_TRIGGER]]"
+    assert chat_service._extract_ai_camera_mode(response) == ("", None)
