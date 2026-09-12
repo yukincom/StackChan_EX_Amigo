@@ -25,6 +25,14 @@
 - SDカード キャッシュ音声とCONFIG UI からのキャッシュ音声運用
 - LINE通知を署名検証Webhookから暗号化Queueへ受け、自宅Macが60秒ごとにpullする経路（自宅port公開・firmware変更なし）
 
+## 実機デモ
+
+サムネイルをクリックすると X の動画が開きます。
+
+| ノイズのある環境での `いつでも` モード | 会話の文脈を使った Web 検索 |
+| :---: | :---: |
+| [![ノイズのある環境で動作するｽﾀｯｸﾁｬﾝ](https://pbs.twimg.com/amplify_video_thumb/2098668085968617472/img/y5TKIEhWlCwgFrz9?format=webp&name=medium)](https://x.com/yukin_co/status/2098668120043094304) | [![会話の文脈から検索して答えるｽﾀｯｸﾁｬﾝ](https://pbs.twimg.com/amplify_video_thumb/2098669663425376256/img/wU3H8M_n34zsfTkZ?format=webp&name=medium)](https://x.com/yukin_co/status/2098669744547381528) |
+
 ## リポジトリ構成
 
 - `firmware/`
