@@ -163,33 +163,6 @@ AI 発カメラ起動も、ここで設定するキーワードや AI 設定に�
 
 詳細は [docs/server.md](docs/server.md) を参照してください。
 
-## 実機なし保守ラボ
-
-M5Stack へ書き込まずに、firmware の HTTP 契約、server の主要 route、音声・会話・Vision の流れ、異常応答、設定診断、設定/記憶の退避と復元を検証できます。テストは固定の合成音声・合成 JPEG と loopback 通信だけを使い、実 API、実カメラ、実会話データ、モデルを必要としません。
-
-```bash
-# 既に依存が入っている環境で全テスト
-PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
-  python3 -m pytest -p no:cacheprovider -q
-
-# 仮想 M5Stack + 偽 STT/LLM/TTS の一周確認
-python3 -m tools.stackchan_lab smoke --repo .
-
-# 値を表示しない設定診断
-python3 -m tools.stackchan_lab doctor --repo . --env-dir ~/env
-
-# allowlist済み診断だけの共有用bundle（repository外へ新規作成）
-python3 -m tools.stackchan_lab support create --repo . --env-dir ~/env \
-  --output /safe/off-repo/amigo.stackchan-support.zip
-
-# env・JSON・SDテンプレートを値非表示で統一検査
-python3 -m tools.stackchan_lab config validate --repo . --env-dir ~/env
-```
-
-初回だけ再現可能な Python 環境を作る場合は `uv sync --frozen --group test` を使います。これは core Python package を取得しますが、Kokoro/MLX やモデルは取得しません。詳しい範囲、復旧手順、現在固定している既知差分は [docs/no-device-lab.md](docs/no-device-lab.md) を参照してください。
-
-既知差分が検出された場合、`smoke` は `degraded` / exit 2 になります。自動化で記録済みの差分だけを許容する場合は `--allow-known-gaps` を明示します。
-
 ## ドキュメント
 
 - 基本手順: [docs/basic_usage.md](docs/basic_usage.md)
