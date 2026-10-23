@@ -1,0 +1,20 @@
+[package]
+name = "stackchanctl"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+description = "Local StackChan diagnostics and supervised service launch"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+http = "1"
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+ureq = { version = "3.5", default-features = false }
+wait-timeout = "0.2"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+strip = false

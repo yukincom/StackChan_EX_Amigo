@@ -52,3 +52,5 @@ firmware/lib/aquestalk/
 firmware/data/
 # Optional local notes / scratch
 *.log
+# Per-worktree Rust build output
+native/**/target/
