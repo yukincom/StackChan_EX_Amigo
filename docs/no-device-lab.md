@@ -53,6 +53,8 @@ Windowsでは `.bootstrap-venv/bin/uv` を `.bootstrap-venv/Scripts/uv.exe` に�
 Rust binaryがない場合、native CLIの比較テストは理由付きでskipされます。上のbuild後は実行対象になり、CIもbuildを先に実行します。通常のPythonアプリの起動にRustは不要です。
 サーバー起動には更新後の依存版が必要です。offlineの `doctor` は更新前の環境でも不足する版を診断できます。
 
+本体の入力メニュー・実MP3デコーダーまで試験するには、既存のfirmware依存（M5GFX / ESP8266Audio）と `cc` / `c++` / `ffmpeg` も必要です。ライブラリ不足時のskipは「本体で不要」という意味ではありません。CIでは同じ版を明示取得し、ファイルの存在を確認してから試験します。[依存と検証記録](2026-10-24-host-test-dependencies.md)を参照してください。
+
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest -p no:cacheprovider -q

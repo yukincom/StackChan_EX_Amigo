@@ -24,6 +24,29 @@ jobs:
           ref: v7.4.3
           path: firmware/.pio/libdeps/m5stack-cores3/ArduinoJson
           persist-credentials: false
+      - name: Fetch production M5GFX headers for input-menu host tests
+        uses: actions/checkout@v4
+        with:
+          repository: m5stack/M5GFX
+          ref: 729297d6e3d657ddc1ec5189bac2f2ea68828085 # 0.2.26
+          path: firmware/.pio/libdeps/m5stack-cores3/M5GFX
+          persist-credentials: false
+      - name: Fetch production MP3 decoder for playback host tests
+        uses: actions/checkout@v4
+        with:
+          repository: earlephilhower/ESP8266Audio
+          ref: a0a4a007576e0a26a51f74d2d9fc2d698b3f9ba8 # 1.9.9
+          path: firmware/.pio/libdeps/m5stack-cores3/ESP8266Audio
+          persist-credentials: false
+      - name: Install and verify firmware host-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg
+          command -v cc
+          command -v c++
+          command -v ffmpeg
+          test -f firmware/.pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/misc/enum.hpp
+          test -f firmware/.pio/libdeps/m5stack-cores3/ESP8266Audio/src/AudioGeneratorMP3.cpp
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11.14"
@@ -43,6 +66,6 @@ jobs:
       - name: Compile Python sources
         run: .bootstrap-venv/bin/uv run --frozen --no-sync python -m compileall -q server tools tests
       - name: Run no-device tests
-        run: .bootstrap-venv/bin/uv run --frozen --no-sync pytest -q
+        run: .bootstrap-venv/bin/uv run --frozen --no-sync pytest -q -rs
       - name: Run standalone smoke scenario
         run: .bootstrap-venv/bin/uv run --frozen --no-sync python -m tools.stackchan_lab smoke --repo . --allow-known-gaps
