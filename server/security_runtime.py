@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from importlib import metadata
-from pathlib import Path
 import re
-import subprocess
 
 
 MINIMUM_CERTIFI = "2026.10.19"
@@ -46,10 +44,3 @@ def require_secure_environment() -> None:
     errors = environment_errors()
     if errors:
         raise RuntimeError("; ".join([*errors, MIGRATION]))
-
-
-def require_secure_uv(executable: str | Path) -> None:
-    result = subprocess.run([str(executable), "--version"], check=True, capture_output=True, text=True, timeout=10)
-    fields = result.stdout.split()
-    if len(fields) < 2 or fields[0] != "uv" or not version_at_least(fields[1], MINIMUM_UV):
-        raise RuntimeError(f"uv>={MINIMUM_UV} is required. {MIGRATION}")

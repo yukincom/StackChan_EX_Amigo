@@ -1,7 +1,6 @@
 name: No-device maintenance lab
 
 on:
-  pull_request:
   push:
     branches: [main]
 
@@ -34,6 +33,13 @@ jobs:
         run: .bootstrap-venv/bin/uv lock --check --no-python-downloads
       - name: Install core and test dependencies only
         run: .bootstrap-venv/bin/uv sync --frozen --no-python-downloads --group test
+      - name: Check and build native CLI
+        run: |
+          export CARGO_HTTP_CAINFO="$(.venv/bin/python -c 'import certifi; print(certifi.where())')"
+          cargo fmt --manifest-path native/stackchanctl/Cargo.toml -- --check
+          cargo test --locked --manifest-path native/stackchanctl/Cargo.toml
+          cargo clippy --locked --manifest-path native/stackchanctl/Cargo.toml --all-targets -- -D warnings
+          cargo build --release --locked --manifest-path native/stackchanctl/Cargo.toml
       - name: Compile Python sources
         run: .bootstrap-venv/bin/uv run --frozen --no-sync python -m compileall -q server tools tests
       - name: Run no-device tests

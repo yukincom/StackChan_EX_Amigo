@@ -6,8 +6,7 @@
   <string>com.stackchan.amigo.server</string>
   <key>ProgramArguments</key>
   <array>
-    <string>__PYTHON_311__</string>
-    <string>__REPO__/tools/stackchanctl.py</string>
+    <string>__STACKCHANCTL__</string>
     <string>run-server</string>
     <string>--repo</string>
     <string>__REPO__</string>

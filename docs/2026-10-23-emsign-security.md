@@ -30,7 +30,7 @@ python3.11 tools/bootstrap.py
 Windowsのuvは `.bootstrap-venv/Scripts/uv.exe` です。MLX利用時はさらに `--extra mlx` を付けて同期してください。
 既存venvにpipを残す必要がある場合も、公式告知のSHA-256付きpip wheel URLで26.2.2へ更新してから使用します。不要なら旧venvを別名で保管し、新しい `.venv` を作成してください。
 
-bootstrapは専用venvを作成し、最初のnetwork installを公式pip 26.2.2 wheelの固定URLとSHA-256で検証します。依存解決なしでそのwheelを導入してから、安全版pipでuv 0.13.4を導入します。グローバルPythonのpackageは変更しません。
+bootstrapは専用venvを作成し、最初のnetwork installを公式pip 26.2.2 wheelの固定URLとSHA-256で検証します。依存解決なしでそのwheelを導入してから、更新済みpipでuv 0.13.4を導入します。グローバルPythonのpackageは変更しません。
 コンテナや配布環境はOSのCAも更新し、キャッシュなしで再作成してください。ホストOS全体の信頼storeはこのrepositoryから変更しません。
 
 ## firmwareと実機の境界
@@ -46,7 +46,7 @@ CoreS3本体単体の連続稼働試験、既存collector、常駐serverは維�
 - 公式hash付きbootstrap成功: pip 26.2.2 / uv 0.13.4。
 - certifiだけを2026.7.22から2026.10.19へ更新。他packageの固定版は維持。uv 0.13.4によりlock revisionとmarkerの表現も更新。
 - `uv lock --check --offline --no-python-downloads`: 成功。旧uv 0.10.2の同commandは必須版不一致で拒否。
-- 安全版判定・旧版拒否・bootstrap最初の通信・既存wrapper/doctorの対象テスト: 23 passed。
+- 版判定・旧版拒否・bootstrap最初の通信・既存wrapper/doctorの対象テスト: 23 passed。
 - no-device全体: **316 passed, 2 skipped**（13.50秒）。skipは任意のM5GFX header / ESP8266Audio依存を必要とする2件。ArduinoJson 7.4.3は既存cacheを読み取り再利用。
 - standalone smoke: **status ok、9 checks成功、known_gaps空、route差分なし**。
 - 正常動作の追加確認: `voice` extraを含む別venvの113 packagesを実際に導入し、`tools/voice_startup_smoke.py` の **5 checks成功**。numpy / soundfile / kokoroを置換せずimportし、実voice serverを一時loopbackで起動、日本語生成→WAV配信を確認。VOICEVOX上流だけは固定WAVのfixtureで、Kokoroのモデル読込・英語推論は実行していません。

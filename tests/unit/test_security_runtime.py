@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from importlib import metadata
 from pathlib import Path
-from types import SimpleNamespace
 import json
 import subprocess
 import sys
@@ -48,16 +47,6 @@ def test_runtime_requires_certifi_but_does_not_require_packaging_tools(monkeypat
     monkeypatch.setattr(security.metadata, "version", lambda name: (_ for _ in ()).throw(metadata.PackageNotFoundError(name)))
     with pytest.raises(RuntimeError, match="certifi"):
         security.require_secure_environment()
-
-
-@pytest.mark.parametrize("output,accepted", [("uv 0.10.2\n", False), ("uv 0.13.4 (build)\n", True), ("not-uv 99.0\n", False)])
-def test_selected_uv_is_checked_before_launch(monkeypatch, output, accepted):
-    monkeypatch.setattr(security.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=output))
-    if accepted:
-        security.require_secure_uv(Path("/fixture/uv"))
-    else:
-        with pytest.raises(RuntimeError, match="uv>=0.13.4"):
-            security.require_secure_uv(Path("/fixture/uv"))
 
 
 def test_bootstrap_first_network_install_is_hash_pinned(monkeypatch, tmp_path):

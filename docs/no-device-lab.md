@@ -42,11 +42,15 @@ python3.11 tools/bootstrap.py
 .bootstrap-venv/bin/uv sync --frozen --no-python-downloads --group test
 
 # 以後の検証
+# Rust CLIの比較テストを含める場合（既存Rust 1.85以上）
+cargo test --locked --manifest-path native/stackchanctl/Cargo.toml
+cargo build --release --locked --manifest-path native/stackchanctl/Cargo.toml
 .bootstrap-venv/bin/uv run --frozen --no-sync pytest -q
 .bootstrap-venv/bin/uv run --frozen --no-sync python -m tools.stackchan_lab smoke --repo .
 ```
 
 Windowsでは `.bootstrap-venv/bin/uv` を `.bootstrap-venv/Scripts/uv.exe` に読み替えます。
+Rust binaryがない場合、native CLIの比較テストは理由付きでskipされます。上のbuild後は実行対象になり、CIもbuildを先に実行します。通常のPythonアプリの起動にRustは不要です。
 サーバー起動には更新後の依存版が必要です。offlineの `doctor` は更新前の環境でも不足する版を診断できます。
 
 ```bash
