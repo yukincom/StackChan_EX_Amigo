@@ -9,8 +9,9 @@ pipはOS側の信頼設定に加えて同梱certifiも使用するため、OSの
 certifiを直接依存にし、uvの `required-version` を設定しました。app / voice server / model downloadの起動と設定読込時に、古い・欠落したcertifi、導入済みの古いpip/uvを拒否します。
 pip/uvを含まない実行用venvに追加導入を強制するものではありません。
 
-既存環境を黙って継続する後方互換は廃止しました。検査を無効にする環境変数、古いuvへのPATHフォールバック、TLS検証無効化は用意していません。
+旧CA/対策前の版を黙って継続する後方互換は廃止しました。検査を無効にする環境変数、古いuvへのフォールバック、TLS検証無効化は用意していません。
 `stackchanctl run-server` は指定uvの版を確認し、既定では専用 `.bootstrap-venv` のuvを使用します。offline `doctor` は拒否理由を診断結果へ追加します。
+専用uvがない既存環境でも、PATHのuvが0.13.4以上なら利用できます。`doctor` のoffline診断は更新前の環境でも実行でき、更新が必要な版を結果へ出します。サーバーの正常起動と診断機能を維持するための区別です。
 
 ## 移行と再ビルド
 
@@ -25,7 +26,8 @@ python3.11 tools/bootstrap.py
 .bootstrap-venv/bin/uv run --frozen --no-sync python -m tools.stackchan_lab smoke --repo . --allow-known-gaps
 ```
 
-Windowsのuvは `.bootstrap-venv/Scripts/uv.exe` です。optional `voice` / `mlx` 利用時は同じ安全なuvで必要な `--extra` を付けて同期してください。モデルの自動取得はしません。
+上の `--group test` はno-device検証用です。通常の `voice_server.py` 起動には同じuvで `sync --frozen --no-python-downloads --extra voice` を実行してください。numpy / soundfile / kokoroが必要です。既存venvでも選ばないextraはsyncで削除されるため、音声利用時は毎回 `--extra voice` を指定します。モデルの自動取得はしません。
+Windowsのuvは `.bootstrap-venv/Scripts/uv.exe` です。MLX利用時はさらに `--extra mlx` を付けて同期してください。
 既存venvにpipを残す必要がある場合も、公式告知のSHA-256付きpip wheel URLで26.2.2へ更新してから使用します。不要なら旧venvを別名で保管し、新しい `.venv` を作成してください。
 
 bootstrapは専用venvを作成し、最初のnetwork installを公式pip 26.2.2 wheelの固定URLとSHA-256で検証します。依存解決なしでそのwheelを導入してから、安全版pipでuv 0.13.4を導入します。グローバルPythonのpackageは変更しません。
@@ -47,4 +49,7 @@ CoreS3本体単体の連続稼働試験、既存collector、常駐serverは維�
 - 安全版判定・旧版拒否・bootstrap最初の通信・既存wrapper/doctorの対象テスト: 23 passed。
 - no-device全体: **316 passed, 2 skipped**（13.50秒）。skipは任意のM5GFX header / ESP8266Audio依存を必要とする2件。ArduinoJson 7.4.3は既存cacheを読み取り再利用。
 - standalone smoke: **status ok、9 checks成功、known_gaps空、route差分なし**。
+- 正常動作の追加確認: `voice` extraを含む別venvの113 packagesを実際に導入し、`tools/voice_startup_smoke.py` の **5 checks成功**。numpy / soundfile / kokoroを置換せずimportし、実voice serverを一時loopbackで起動、日本語生成→WAV配信を確認。VOICEVOX上流だけは固定WAVのfixtureで、Kokoroのモデル読込・英語推論は実行していません。
+- `doctor` は旧certifiの環境でもJSON診断へ到達し、更新済みPATHのuvでも起動dry-runが通ることを追加テストで確認（対象25 passed）。
+- 通常導入・offline診断の追補後の全体再検証: **318 passed, 2 skipped**（13.26秒）。
 - 実機、音声/カメラhardware、MLX/Kokoro推論、Windows実行、コンテナ再ビルド、常駐processへの適用は未検証です。

@@ -3,6 +3,9 @@ from __future__ import annotations
 from importlib import metadata
 from pathlib import Path
 from types import SimpleNamespace
+import json
+import subprocess
+import sys
 
 import pytest
 
@@ -69,3 +72,18 @@ def test_bootstrap_first_network_install_is_hash_pinned(monkeypatch, tmp_path):
     assert "#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70" in first[-1]
     assert second[-1] == "uv==0.13.4"
     assert version[-1] == "--version"
+
+
+def test_offline_doctor_reports_old_certifi_without_blocking_diagnostics(tmp_path):
+    script = """
+import importlib.metadata, runpy, sys
+original = importlib.metadata.version
+importlib.metadata.version = lambda name: '2026.7.22' if name == 'certifi' else original(name)
+sys.argv = ['stackchan-lab', 'doctor', '--repo', sys.argv[1], '--env-dir', sys.argv[2]]
+runpy.run_module('tools.stackchan_lab', run_name='__main__')
+"""
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run([sys.executable, "-B", "-c", script, str(root), str(tmp_path)], cwd=root, capture_output=True, text=True)
+    report = json.loads(result.stdout)
+    assert result.returncode == 1
+    assert any(check["name"] == "security:packaging" for check in report["checks"])

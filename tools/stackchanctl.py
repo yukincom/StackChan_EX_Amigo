@@ -8,6 +8,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -114,7 +115,9 @@ def main(argv: list[str] | None = None) -> int:
         repo = _valid_repo(args.repo)
         env_dir = args.env_dir.expanduser().resolve()
         bundled_uv = repo / ".bootstrap-venv" / ("Scripts/uv.exe" if os.name == "nt" else "bin/uv")
-        uv = str(args.uv.expanduser().resolve()) if args.uv else str(bundled_uv)
+        uv = str(args.uv.expanduser().resolve()) if args.uv else (
+            str(bundled_uv) if bundled_uv.is_file() else shutil.which("uv")
+        )
         env_ready = env_dir.is_dir() and (env_dir / ".env").is_file()
         if not uv or not Path(uv).is_file() or not os.access(uv, os.X_OK):
             raise RuntimeError("secure uv is unavailable; run python tools/bootstrap.py")

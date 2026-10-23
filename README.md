@@ -111,8 +111,9 @@ cp -r server/json_example server/json
 
 Python環境は certifi >= 2026.10.19、uv >= 0.13.4（pip使用時は >= 26.2.2）が必須です。
 初回・旧環境からの更新は `python3.11 tools/bootstrap.py` の後、
-`.bootstrap-venv/bin/uv sync --frozen --no-python-downloads --group test` を実行してください。
-詳細は [安全版への移行手順](docs/2026-10-23-emsign-security.md) を参照してください。
+`.bootstrap-venv/bin/uv sync --frozen --no-python-downloads --extra voice` を実行してください。
+`voice_server` の通常起動には `voice` extraが必要です。実機なし検証だけなら `--group test` を使います。
+詳細は [アップデート手順](docs/2026-10-23-emsign-security.md) を参照してください。
 
 ### 1. `VOICEVOX`　を起動
 

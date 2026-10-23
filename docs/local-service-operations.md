@@ -14,7 +14,7 @@ python3 tools/stackchanctl.py status --url http://127.0.0.1:5050
 - `/health/ready`: 設定、operation journal、Vision worker、音声送達worker、runtime起動がすべて正常なときだけ200です。
 - 旧 `/health` は既存client互換のため残しています。
 
-`status` はlocalhostまたはloopback IPの平文HTTPだけを許可し、任意URL取得には使えません。`run-server` は `.bootstrap-venv` のuv、または `--uv` で指定したuvの最低版0.13.4を検査してから `uv run --frozen --no-sync` を使うため、起動時にdependencyやmodelをdownloadしません。初回は [安全版への移行手順](2026-10-23-emsign-security.md) に従ってください。
+`status` はlocalhostまたはloopback IPの平文HTTPだけを許可し、任意URL取得には使えません。`run-server` は `.bootstrap-venv`、PATH、または `--uv` で指定したuvの最低版0.13.4を検査してから `uv run --frozen --no-sync` を使うため、起動時にdependencyやmodelをdownloadしません。初回は [アップデート手順](2026-10-23-emsign-security.md) に従ってください。
 
 ## launchdテンプレート
 

@@ -53,3 +53,19 @@ def test_run_server_dry_run_validates_without_starting(monkeypatch, tmp_path, ca
     assert report["status"] == "dry_run"
     assert report["env_ready"] is True
     assert report["command"][:4] == ["uv", "run", "--frozen", "--no-sync"]
+
+
+def test_run_server_accepts_updated_existing_uv_on_path(monkeypatch, tmp_path, capsys):
+    repo = tmp_path / "repo"
+    (repo / "server").mkdir(parents=True)
+    (repo / "server" / "app.py").write_text("fixture", encoding="utf-8")
+    (repo / "pyproject.toml").write_text("fixture", encoding="utf-8")
+    uv = tmp_path / "uv"
+    uv.write_text("#!/bin/sh\nprintf 'uv 0.13.4\\n'\n", encoding="utf-8")
+    uv.chmod(0o700)
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    (env_dir / ".env").write_text("FIXTURE=1\n", encoding="utf-8")
+    monkeypatch.setattr(stackchanctl.shutil, "which", lambda name: str(uv) if name == "uv" else None)
+    assert stackchanctl.main(["run-server", "--repo", str(repo), "--env-dir", str(env_dir), "--dry-run"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "dry_run"

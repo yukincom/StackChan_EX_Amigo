@@ -47,7 +47,7 @@ python3.11 tools/bootstrap.py
 ```
 
 Windowsでは `.bootstrap-venv/bin/uv` を `.bootstrap-venv/Scripts/uv.exe` に読み替えます。
-既存環境も同期後の安全版検査を通ることが必要です。
+サーバー起動には更新後の依存版が必要です。offlineの `doctor` は更新前の環境でも不足する版を診断できます。
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
@@ -56,6 +56,15 @@ python3 -m tools.stackchan_lab smoke --repo .
 ```
 
 `smoke` と live HTTP test は `127.0.0.1` の一時 port を使います。制限付き sandbox では loopback bind の許可が必要な場合があります。
+
+通常の音声サーバーに必要な依存と起動を確認する場合は、次を実行します。
+
+```bash
+.bootstrap-venv/bin/uv sync --frozen --no-python-downloads --extra voice --group test
+.bootstrap-venv/bin/uv run --frozen --no-sync python tools/voice_startup_smoke.py
+```
+
+実numpy / soundfile / kokoroをimportし、固定WAVのVOICEVOX fixtureでHTTP起動・生成・配信を検証します。モデルは取得せず、既存の常駐portや実機を使いません。
 
 ## 設定を壊す前の診断
 

@@ -171,16 +171,20 @@ Silero VADは音声区間の有無を判定します。発話の宛先や、人�
 
 ## 5. 起動
 
+repository rootで `python3.11 tools/bootstrap.py` を実行し、
+`.bootstrap-venv/bin/uv sync --frozen --no-python-downloads --extra voice` で通常音声用の依存を揃えてから起動します。
+`--group test` だけの同期はno-device検証用で、音声サーバーの依存を含みません。
+
 `server` 側では、少なくとも次の 2 プロセスを起動します。
 
 ```bash
 cd server
-python voice_server.py
+../.venv/bin/python voice_server.py
 ```
 
 ```bash
 cd server
-python app.py
+../.venv/bin/python app.py
 ```
 
 標準では次のポートを使います。
