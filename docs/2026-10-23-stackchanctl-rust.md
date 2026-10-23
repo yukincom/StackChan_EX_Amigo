@@ -16,7 +16,7 @@ python3.14 /Applications/Pytra/src/pytra-cli.py -build /path/to/StackChan_EX_Ami
 
 ## レビューした意味と境界
 
-- Rust全ソース、Cargo manifest/lock、Python互換入口、既存Python版との差分をレビューしました。旧版は `tests/fixtures/stackchanctl_python_reference.py` にテスト専用で固定し、実行時fallbackとしては参照しません。
+- Rust全ソース、Cargo manifest/lock、Python互換入口、既存Python版との差分をレビューしました。旧版は `tests/fixtures/stackchanctl_python_reference.py` にテスト専用で固定し、実行時fallbackとしては参照しません。参照CLIは比較テストが子processに `STACKCHANCTL_TEST_REFERENCE=1` を明示したときだけ実行します。通常の直接実行はHTTP取得・uv版確認・server起動の前に終了code 2で拒否します（Pythonの `-O` 時も同じ）。これは誤用防止であり、セキュリティ境界ではありません。検証は `python -m pytest tests/unit/test_stackchanctl.py` から行い、運用には [ローカルserver運用](local-service-operations.md) のRust CLIを使ってください。
 - HTTPは従来どおり平文loopbackのみ。statusごとの3秒deadline、64 KiB上限、object JSON、ready / not_ready / unreachableの終了code 0 / 2 / 1を維持します。APIのUTF-8 JSONが対象です。
 - 任意精度JSON整数を有効にし、日本語・emojiと `2**100` が旧Python版と一致します。uv版は固定幅整数へ変換せず桁数と数字列で比較します。
 - `http::Authority::port()` が不正portでもNoneを返す点を補正し、65536や非数値を既定80へ誤変換しないようにしました。
@@ -51,6 +51,10 @@ cargo build --release --locked --manifest-path native/stackchanctl/Cargo.toml
 GitHub Actionsは一時停止指示の後、ユーザーの再開指示により最終push時に有効化・実行確認する運用です。実行トリガーはmainへのpushのみで、定期実行・PR作成時・手動実行トリガーはありません。既存のno-device workflowにRust test/buildを含め、比較テストが未buildのためskipされないようにしました。
 
 Windowsの実行、実サーバーの運用切替、モデル推論、hardwareは未検証です。CoreS3のFlash・restart、collectorや常駐serviceの変更・再起動は行っていません。バイナリReleaseは作成せず、今回の公開対象はソースとlockfileです。
+
+### レビュー追補: テスト参照CLIの誤用防止
+
+無許可のHTTP取得拒否を環境変数未設定・空文字・`0` と通常 / `-O` の6通り、uv版確認・server起動前の拒否を1通り追加しました。明示許可した従来の新旧比較も継続し、CLI試験 **40 passed**、no-device全体 **351 passed, 2 skipped**。skipは従来の任意M5GFX / ESP8266Audio依存2件です。運用ドキュメントのBash構文検査も成功しました。Rust実装・Python互換入口・CIトリガーは変更していません。
 
 ## 依存ライセンス
 

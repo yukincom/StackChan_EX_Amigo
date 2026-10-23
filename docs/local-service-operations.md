@@ -32,4 +32,4 @@ Windowsでは末尾に `.exe` を付けます。互換入口 `python3 tools/stac
 - `__ENV_DIR__`: dotenv directory
 - `__STATE_DIR__`: Git管理外のlog directory
 
-置換後は `plutil -lint` と `stackchanctl.py ... --dry-run` で検査できます。このrepositoryのtoolは `launchctl bootstrap`、`bootout`、service登録、service起動を行いません。stdout/stderrには既存serverの会話系logが含まれ得るため、公開support bundleには取り込まずprivateに保管してください。
+置換後は `plutil -lint` と `native/stackchanctl/target/release/stackchanctl run-server --repo . --env-dir ~/env --dry-run` で検査できます。後者は前半と同じRust CLIで、`--repo` / `--env-dir` はテンプレートに設定した実在するpathへ置き換えてください。このrepositoryのtoolは `launchctl bootstrap`、`bootout`、service登録、service起動を行いません。stdout/stderrには既存serverの会話系logが含まれ得るため、公開support bundleには取り込まずprivateに保管してください。

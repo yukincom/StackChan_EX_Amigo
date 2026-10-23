@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test-only Python reference from 9e5f5b2; never a runtime fallback."""
+"""Test-only Python reference from 9e5f5b2; opt-in only, never a runtime fallback."""
 
 from __future__ import annotations
 
@@ -97,6 +97,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Accidental-use guard, not a security boundary. Keep this before dispatch.
+    if os.environ.get("STACKCHANCTL_TEST_REFERENCE") != "1":
+        print(
+            "stackchanctl: test-only Python reference; direct execution is disabled. "
+            "Run tests/unit/test_stackchanctl.py with pytest instead.",
+            file=sys.stderr,
+        )
+        return 2
     args = build_parser().parse_args(argv)
     if args.command == "preflight":
         repo = _valid_repo(args.repo)

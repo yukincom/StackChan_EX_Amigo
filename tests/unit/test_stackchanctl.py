@@ -30,6 +30,8 @@ def native_binary():
 def cli(command, *args, environment=None, input=None):
     env = os.environ.copy()
     env.update(PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(ROOT), NO_PROXY="*", no_proxy="*")
+    if command[-1] == str(REFERENCE):
+        env["STACKCHANCTL_TEST_REFERENCE"] = "1"
     if environment:
         env.update(environment)
     return subprocess.run([*command, *map(str, args)], cwd=ROOT, env=env, input=input, capture_output=True, text=True, timeout=15)
@@ -40,9 +42,11 @@ def commands(native_binary):
 
 
 @contextmanager
-def health_server(live=(200, b'{"status":"alive"}'), ready=(200, b'{"status":"ready"}'), headers=None):
+def health_server(live=(200, b'{"status":"alive"}'), ready=(200, b'{"status":"ready"}'), headers=None, requests=None):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if requests is not None:
+                requests.append(self.path)
             status, body = live if self.path == "/health/live" else ready
             self.send_response(status)
             for key, value in (headers or {}).items():
@@ -64,6 +68,25 @@ def health_server(live=(200, b'{"status":"alive"}'), ready=(200, b'{"status":"re
         server.shutdown()
         server.server_close()
         worker.join(timeout=2)
+
+
+@pytest.mark.parametrize("permission", [None, "", "0"])
+@pytest.mark.parametrize("optimized", [False, True])
+def test_reference_refuses_direct_execution_before_http(permission, optimized):
+    environment = os.environ.copy()
+    environment.pop("STACKCHANCTL_TEST_REFERENCE", None)
+    if permission is not None:
+        environment["STACKCHANCTL_TEST_REFERENCE"] = permission
+    requests = []
+    with health_server(requests=requests) as url:
+        command = [sys.executable, *(["-O"] if optimized else []), "-B", str(REFERENCE)]
+        result = subprocess.run([*command, "status", "--url", url], cwd=ROOT, env=environment,
+                                capture_output=True, text=True, timeout=15)
+    assert result.returncode == 2
+    assert "test-only Python reference" in result.stderr
+    assert "pytest" in result.stderr
+    assert result.stdout == ""
+    assert requests == []
 
 
 @pytest.mark.parametrize("ready_status,body,exit_code,error", [
@@ -136,6 +159,20 @@ else:
 ''', encoding="utf-8")
     uv.chmod(0o700)
     return repo, env_dir, uv
+
+
+def test_reference_refuses_direct_execution_before_uv_or_server(launch_fixture, tmp_path):
+    repo, env_dir, uv = launch_fixture
+    marker = tmp_path / "uv-was-executed"
+    uv.write_text(f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\nraise SystemExit(77)\n", encoding="utf-8")
+    environment = os.environ.copy()
+    environment.pop("STACKCHANCTL_TEST_REFERENCE", None)
+    result = subprocess.run([sys.executable, "-B", str(REFERENCE), "run-server", "--repo", str(repo),
+                             "--env-dir", str(env_dir), "--uv", str(uv)], cwd=ROOT, env=environment,
+                            capture_output=True, text=True, timeout=15)
+    assert result.returncode == 2
+    assert "test-only Python reference" in result.stderr
+    assert not marker.exists()
 
 
 @pytest.mark.parametrize("env_ready", [True, False])
