@@ -109,20 +109,25 @@ cp -r server/json_example server/json
 
 ## 起動手順
 
+Python環境は certifi >= 2026.10.19、uv >= 0.13.4（pip使用時は >= 26.2.2）が必須です。
+初回・旧環境からの更新は `python3.11 tools/bootstrap.py` の後、
+`.bootstrap-venv/bin/uv sync --frozen --no-python-downloads --group test` を実行してください。
+詳細は [安全版への移行手順](docs/2026-10-23-emsign-security.md) を参照してください。
+
 ### 1. `VOICEVOX`　を起動
 
 ### 2. `voice_server` を起動
 
 ```bash
 cd server
-python voice_server.py
+../.venv/bin/python voice_server.py
 ```
 
 ### 3. `server` を起動
 
 ```bash
 cd server
-python app.py
+../.venv/bin/python app.py
 ```
 
 ### 4. CONFIG UI を開く

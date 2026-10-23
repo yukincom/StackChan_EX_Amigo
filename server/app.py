@@ -1,6 +1,9 @@
 # app.py
 """Flaskアプリケーション"""
 
+from security_runtime import require_secure_environment
+
+require_secure_environment()
 
 import json
 import traceback

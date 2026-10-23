@@ -8,7 +8,6 @@ import ipaddress
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -20,6 +19,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.stackchan_lab.doctor import doctor_summary, run_doctor
+from server.security_runtime import require_secure_uv
 
 
 def _print_json(value: object) -> None:
@@ -113,10 +113,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run-server":
         repo = _valid_repo(args.repo)
         env_dir = args.env_dir.expanduser().resolve()
-        uv = str(args.uv.expanduser().resolve()) if args.uv else shutil.which("uv")
+        bundled_uv = repo / ".bootstrap-venv" / ("Scripts/uv.exe" if os.name == "nt" else "bin/uv")
+        uv = str(args.uv.expanduser().resolve()) if args.uv else str(bundled_uv)
         env_ready = env_dir.is_dir() and (env_dir / ".env").is_file()
         if not uv or not Path(uv).is_file() or not os.access(uv, os.X_OK):
-            raise RuntimeError("uv executable is unavailable")
+            raise RuntimeError("secure uv is unavailable; run python tools/bootstrap.py")
+        require_secure_uv(uv)
         command = [uv, "run", "--frozen", "--no-sync", "python", "server/app.py"]
         if args.dry_run:
             _print_json({

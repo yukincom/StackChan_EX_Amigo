@@ -1,5 +1,9 @@
 # config.py
 """設定管理モジュール"""
+from security_runtime import require_secure_environment
+
+require_secure_environment()
+
 import os
 import json
 from pathlib import Path

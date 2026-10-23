@@ -7,6 +7,7 @@
 | package | version | license | 用途 |
 | --- | ---: | --- | --- |
 | APScheduler | 3.11.2 | MIT | 既存 scheduler |
+| certifi | >=2026.10.19 (lock: 2026.10.19) | MPL-2.0 | HTTP clientのCA bundle。2026-10-23に直接依存化 |
 | cryptography | 50.0.1 | Apache-2.0 OR BSD-3-Clause | LINE Queue payload の AES-GCM 復号 |
 | Flask | 3.1.3 | BSD-3-Clause | 既存 server と仮想 HTTP service |
 | Werkzeug | 3.1.8 | BSD-3-Clause | 既存 server、loopback test server |
@@ -20,11 +21,14 @@
 
 ラボ専用の emulator framework は追加していません。標準 library と既存の Flask/requests を再利用しています。
 
-`uv 0.10.2` は環境同期/lock 用の開発 toolで、runtime dependency ではありません。upstream は Apache-2.0 と MIT の dual license です。
+`uv 0.13.4` は環境同期/lock 用の開発 toolで、runtime dependency ではありません。upstream は Apache-2.0 と MIT の dual license です。
+初期導入に用いる `pip 26.2.2` は MIT です。旧CAを含む版はサポートしません。
 
 - [pytest 9.0.3 LICENSE](https://github.com/pytest-dev/pytest/blob/9.0.3/LICENSE)
-- [uv 0.10.2 LICENSE-APACHE](https://github.com/astral-sh/uv/blob/0.10.2/LICENSE-APACHE)
-- [uv 0.10.2 LICENSE-MIT](https://github.com/astral-sh/uv/blob/0.10.2/LICENSE-MIT)
+- [uv 0.13.4 LICENSE-APACHE](https://github.com/astral-sh/uv/blob/0.13.4/LICENSE-APACHE)
+- [uv 0.13.4 LICENSE-MIT](https://github.com/astral-sh/uv/blob/0.13.4/LICENSE-MIT)
+- [certifi 2026.10.19 LICENSE](https://github.com/certifi/python-certifi/blob/2026.10.19/LICENSE)
+- [pip 26.2.2 LICENSE](https://github.com/pypa/pip/blob/26.2.2/LICENSE.txt)
 
 ## Optional extras
 

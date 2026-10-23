@@ -1,6 +1,10 @@
 # voice_server.py 分割
 """音声生成サーバー (VOICEVOX + Kokoro)"""
 from __future__ import annotations
+from security_runtime import require_secure_environment
+
+require_secure_environment()
+
 import hashlib
 import os
 import time

@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
+from server.security_runtime import environment_errors, MIGRATION
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,8 @@ def run_doctor(repo_root: Path, env_dir: Path | None = None) -> list[CheckResult
     repo_root = repo_root.expanduser().resolve()
     env_dir = (env_dir or Path.home() / "env").expanduser().resolve()
     results: list[CheckResult] = []
+    for error in environment_errors():
+        results.append(_error("security:packaging", error, MIGRATION))
 
     if (repo_root / "server" / "app.py").is_file() and (repo_root / "firmware" / "platformio.ini").is_file():
         results.append(_ok("repository", "StackChan_EX_Amigo layout detected"))

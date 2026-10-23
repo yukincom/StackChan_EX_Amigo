@@ -4,6 +4,10 @@
 例:    python download_model.py mlx-community/Qwen3.6-35B-A3B-4bit-DWQ
 引数なしの場合は .env.local の AI_CHAT_MODEL を使用
 """
+from security_runtime import require_secure_environment
+
+require_secure_environment()
+
 import sys
 from huggingface_hub import snapshot_download
 from dotenv import load_dotenv

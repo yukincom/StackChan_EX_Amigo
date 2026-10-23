@@ -31,18 +31,23 @@
 
 ## 最短の使い方
 
-Python は `.python-version` の 3.11.14、直接依存は `uv.lock` で固定しています。
+Python は `.python-version` の 3.11.14、依存は `uv.lock` で固定しています。
+2026-10-23以降は certifi >= 2026.10.19、uv >= 0.13.4、pipを導入する環境では pip >= 26.2.2 が必須です。
+旧環境の継続使用はできません。[移行理由・再作成手順](2026-10-23-emsign-security.md)を参照してください。
 
 ```bash
-# 新しい仮想環境を初回作成する場合。core + test のみで、モデルは取得しない
-uv sync --frozen --no-python-downloads --group test
+# 最初の通信で公式SHA-256付きpip 26.2.2を取得し、uv 0.13.4を隔離導入
+python3.11 tools/bootstrap.py
+# core + test のみで、モデルは取得しない
+.bootstrap-venv/bin/uv sync --frozen --no-python-downloads --group test
 
 # 以後の検証
-uv run --frozen --no-sync pytest -q
-uv run --frozen --no-sync python -m tools.stackchan_lab smoke --repo .
+.bootstrap-venv/bin/uv run --frozen --no-sync pytest -q
+.bootstrap-venv/bin/uv run --frozen --no-sync python -m tools.stackchan_lab smoke --repo .
 ```
 
-既に必要 package が入っている環境なら、環境を作り直さずに実行できます。
+Windowsでは `.bootstrap-venv/bin/uv` を `.bootstrap-venv/Scripts/uv.exe` に読み替えます。
+既存環境も同期後の安全版検査を通ることが必要です。
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \

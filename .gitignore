@@ -19,6 +19,7 @@
 htmlcov/
 # Virtualenv
 .venv/
+.bootstrap-venv/
 venv/
 server/.venv/
 server/venv/
