@@ -16,7 +16,7 @@ from services.line_queue_service import (
     poll_line_queue,
 )
 from services.discord_service import poll_discord
-from member_loader import has_line_users, has_discord_users
+from member_loader import has_line_users, has_discord_users, mask_names
 from memory_manager import RobotMemory 
 
 
@@ -93,6 +93,7 @@ def poll_render():
         data = response.json()
         if data.get("notification"):
             n = data["notification"]
+            print(f"[LINE] 新着メッセージ: {mask_names(n.get('message', ''))!r}")
             process_notification(n.get("user_id", ""), n.get("message", ""))
     except requests.exceptions.Timeout:
         pass
