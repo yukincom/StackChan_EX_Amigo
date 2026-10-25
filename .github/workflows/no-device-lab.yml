@@ -19,13 +19,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - name: Install hash-verified secure uv for macOS arm64
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          python-version: "3.11.14"
-      - name: Bootstrap secure packaging tools
-        run: python tools/bootstrap.py
+          version: "0.13.4"
+          checksum: e0b1d4743ce64c55d9f0f4a444afa6b81125680070ee04e853fcd0f6c1ebf8f1
+          enable-cache: false
+      - name: Install Python 3.11.14 from uv's managed distribution
+        run: uv python install 3.11.14
       - name: Install locked test dependencies without voice or model downloads
-        run: .bootstrap-venv/bin/uv sync --frozen --no-python-downloads --group test
+        run: uv sync --frozen --no-python-downloads --python 3.11.14 --group test
       - name: Verify native tokenization and normal process shutdown
         run: .venv/bin/python -m pytest -p no:cacheprovider -q tests/unit/test_native_shutdown.py
 

@@ -33,3 +33,7 @@ curated-tokenizersは英語解析側が読み込む既存依存です。2つのt
 - CI相当の独立venvをlockから作り、個人設定・音声/画像モデルなしで回帰試験3件が成功。
 
 合成画像は一時的な赤い正方形だけで、個人の写真・会話・認証情報を公開側へコピーしていません。既存アプリの起動手順・見た目は変えず、稼働環境への反映は同じGUIから行います。push後のGitHub実行結果は実際の対象SHAで確認し、ローカル試験をCI結果として扱いません。
+
+## CI環境準備の追補
+
+初回pushではLinux全体試験は両版とも成功しましたが、追加したmacOS arm64 jobは `actions/setup-python` に3.11.14の該当配布がなく、試験前に失敗しました。試験を削除したりIntelへ置き換えず、[uv公式のActions手順](https://docs.astral.sh/uv/guides/integration/github/)で同じPython 3.11.14を用意します。setup-uvは公式v9.0.0のcommit、uvは0.13.4とarm64配布ファイルのSHA-256で固定し、managed Pythonを明示取得した後、追加Python取得を禁止してlockを同期します。変更はmacOSのCI準備だけで、Linuxの既存bootstrap、製品Python、通常起動、UI、pushのみの条件は維持します。
