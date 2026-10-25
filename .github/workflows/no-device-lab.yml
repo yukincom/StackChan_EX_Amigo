@@ -8,6 +8,27 @@ permissions:
   contents: read
 
 jobs:
+  native-shutdown:
+    runs-on: macos-15
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      STACKCHAN_SKIP_DOTENV: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.14"
+      - name: Bootstrap secure packaging tools
+        run: python tools/bootstrap.py
+      - name: Install locked test dependencies without voice or model downloads
+        run: .bootstrap-venv/bin/uv sync --frozen --no-python-downloads --group test
+      - name: Verify native tokenization and normal process shutdown
+        run: .venv/bin/python -m pytest -p no:cacheprovider -q tests/unit/test_native_shutdown.py
+
   core-contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 15
