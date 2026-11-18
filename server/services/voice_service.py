@@ -179,6 +179,19 @@ def generate_voice_mixed(text, speaker_id=None, voice=None):
     except Exception as e:
         print(f"❌ generate_voice_mixed error: {e}")
         return None
+
+
+def set_voice_server_english_mode(enabled: bool) -> None:
+    """英語モード切替に合わせてvoice_server側のKokoroをロード/アンロードする。"""
+    endpoint = "/kokoro/load" if enabled else "/kokoro/unload"
+
+    def _notify():
+        try:
+            requests.post(f"{config.VOICE_SERVER_URL}{endpoint}", timeout=3)
+        except Exception:
+            pass
+
+    threading.Thread(target=_notify, daemon=True, name="kokoro-mode-sync").start()
     
 def _enqueue_persisted_voice_deliveries() -> None:
     journal = get_operation_journal()

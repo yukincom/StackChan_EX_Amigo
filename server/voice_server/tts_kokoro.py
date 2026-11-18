@@ -1,12 +1,14 @@
 # voice_server/tts_kokoro.py
 """Kokoro TTS ロジック（英語・日英分割）"""
 from __future__ import annotations
+import gc
 import io
-import re
 import os
+import re
+import sys
+import threading
 import numpy as np
 import soundfile as sf
-from kokoro import KPipeline
 
 from voice_server.env_loader import load_voice_environment
 
@@ -17,16 +19,43 @@ KOKORO_VOICE_ENGLISH = os.getenv("KOKORO_VOICE_ENGLISH", "af_sarah")
 KOKORO_SAMPLE_RATE = 24000
 
 _kokoro_pipeline = None
+_kokoro_lock = threading.Lock()
 
 
-def _get_kokoro() -> KPipeline:
-    """Kokoroパイプラインを取得（初回のみ初期化）"""
+def _get_kokoro():
+    """Kokoroパイプラインを取得（初回のみ遅延import＋初期化）"""
     global _kokoro_pipeline
-    if _kokoro_pipeline is None:
-        print("[KOKORO] パイプライン初期化中...")
-        _kokoro_pipeline = KPipeline(lang_code='a')  # 'a' = American English
-        print("[KOKORO] 初期化完了")
-    return _kokoro_pipeline
+    with _kokoro_lock:
+        if _kokoro_pipeline is None:
+            print("[KOKORO] パイプライン初期化中...")
+            from kokoro import KPipeline
+            _kokoro_pipeline = KPipeline(lang_code='a')  # 'a' = American English
+            print("[KOKORO] 初期化完了")
+        return _kokoro_pipeline
+
+
+def preload_kokoro() -> bool:
+    """英語モード有効化時にKokoroパイプラインを事前ロードする。"""
+    return _get_kokoro() is not None
+
+
+def unload_kokoro() -> bool:
+    """日本語モード復帰時にKokoroパイプラインを解放する。"""
+    global _kokoro_pipeline
+    with _kokoro_lock:
+        was_loaded = _kokoro_pipeline is not None
+        _kokoro_pipeline = None
+    if was_loaded:
+        gc.collect()
+        torch = sys.modules.get("torch")
+        if torch is not None:
+            try:
+                if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
+            except Exception:
+                pass
+        print("[KOKORO] パイプライン解放完了")
+    return was_loaded
 
 
 def kokoro_tts(text: str, voice: str | None = None) -> bytes | None:

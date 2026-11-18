@@ -8,8 +8,10 @@ AI_PROVIDER = gemini（デフォルト）/ openai互換（grok / ollama / openro
 - call_structured(): 会話モデルによる小さなJSON生成
 - call_summary() : 要約生成。AI_PROVIDERで切り替え
 """
+import gc
 import os
 import re
+import sys
 from config import config
 
 import threading
@@ -210,12 +212,75 @@ def _call_openai_compatible(
 # MLX-VLM（Apple Silicon直接推論・最速・画像対応）
 # ─────────────────────────────────────────────────────────
 
+MLX_IDLE_UNLOAD_SECONDS = float(os.getenv("MLX_IDLE_UNLOAD_SECONDS", "180"))
+
 _mlx_model = None
 _mlx_processor = None
 _mlx_loaded_model_name = None
 _mlx_loading_lock = threading.Lock()
 # load + generate 全体を直列化（並行 generate によるクラッシュ防止）
 _mlx_generate_lock = threading.Lock()
+_mlx_timer_lock = threading.Lock()
+_mlx_unload_timer: threading.Timer | None = None
+
+
+def _clear_mlx_cache() -> None:
+    mx = sys.modules.get("mlx.core")
+    if mx is None:
+        return
+    clear_fn = getattr(mx, "clear_cache", None) or getattr(
+        getattr(mx, "metal", None), "clear_cache", None
+    )
+    if callable(clear_fn):
+        try:
+            clear_fn()
+        except Exception:
+            pass
+
+
+def _cancel_mlx_unload_timer() -> None:
+    global _mlx_unload_timer
+    with _mlx_timer_lock:
+        if _mlx_unload_timer is not None:
+            _mlx_unload_timer.cancel()
+            _mlx_unload_timer = None
+
+
+def _schedule_mlx_unload_timer(delay_seconds: float | None = None) -> None:
+    global _mlx_unload_timer
+    delay = MLX_IDLE_UNLOAD_SECONDS if delay_seconds is None else delay_seconds
+    with _mlx_timer_lock:
+        if _mlx_unload_timer is not None:
+            _mlx_unload_timer.cancel()
+            _mlx_unload_timer = None
+        if delay <= 0:
+            return
+        timer = threading.Timer(delay, unload_mlx_model)
+        timer.daemon = True
+        timer.name = "mlx-idle-unload"
+        _mlx_unload_timer = timer
+        timer.start()
+
+
+def unload_mlx_model() -> bool:
+    """ロード済みローカルMLXモデルを解放し、メモリとMetalキャッシュを回収する。"""
+    global _mlx_model, _mlx_processor, _mlx_loaded_model_name
+    _cancel_mlx_unload_timer()
+    with _mlx_generate_lock:
+        with _mlx_loading_lock:
+            was_loaded = (
+                _mlx_model is not None
+                or _mlx_processor is not None
+                or _mlx_loaded_model_name is not None
+            )
+            _mlx_model = None
+            _mlx_processor = None
+            _mlx_loaded_model_name = None
+    if was_loaded:
+        gc.collect()
+        _clear_mlx_cache()
+        print("[LLM] 🧹 アイドル解放: MLXモデルをアンロードしました")
+    return was_loaded
 
 def _call_mlx(
     prompt: str,
@@ -251,28 +316,34 @@ def _call_mlx_text(
         print(f"[LLM] ❌ モデル未DL: {model}")
         return "モデルがまだダウンロードされていないよ！先にdownload_model.pyを実行してね。"
 
+    _cancel_mlx_unload_timer()
     with _mlx_generate_lock:
-        with _mlx_loading_lock:
-            if _mlx_loaded_model_name != model:
-                print(f"[LLM] 🍎 MLXモデルロード中: {model}")
-                _mlx_model, _mlx_processor = load(model)
-                _mlx_loaded_model_name = model
+        _cancel_mlx_unload_timer()
+        try:
+            with _mlx_loading_lock:
+                if _mlx_loaded_model_name != model:
+                    print(f"[LLM] 🍎 MLXモデルロード中: {model}")
+                    _mlx_model, _mlx_processor = load(model)
+                    _mlx_loaded_model_name = model
 
-        messages = [{"role": "user", "content": prompt}]
-        formatted = _mlx_processor.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=False
-        )
-        response = generate(
-            _mlx_model, _mlx_processor,
-            prompt=formatted,
-            max_tokens=max_tokens or config.AI_MAX_OUTPUT_TOKENS,
-            sampler=make_sampler(temperature),
-            verbose=False
-        )
-        return _strip_thinking(response)
+            messages = [{"role": "user", "content": prompt}]
+            formatted = _mlx_processor.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False
+            )
+            response = generate(
+                _mlx_model, _mlx_processor,
+                prompt=formatted,
+                max_tokens=max_tokens or config.AI_MAX_OUTPUT_TOKENS,
+                sampler=make_sampler(temperature),
+                verbose=False
+            )
+            return _strip_thinking(response)
+        finally:
+            if _mlx_model is not None:
+                _schedule_mlx_unload_timer()
 
 
 def _call_mlx_vlm(prompt: str, model: str, temperature: float, image_path: str) -> str:

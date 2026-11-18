@@ -16,7 +16,6 @@ from werkzeug.exceptions import ClientDisconnected
 
 from config import config
 from ai_handler import is_english_mode
-from llm_client import preload_mlx_model
 from member_loader import has_line_users, has_discord_users
 from services.chat_service import process_chat, resolve_speaker_context, trigger_stack_ai_camera_async
 from services.conversation_event_service import (
@@ -39,7 +38,6 @@ from services.voice_service import (
     warmup_stack_startup_message,
 )
 from services.vision_handler import handle_vision_upload
-from services.vlm_service import preload_vml_model
 from admin_routes import admin_bp
 from openai_compat_routes import openai_bp
 from observability import emit_trace, install_flask_tracing, trace_context
@@ -101,8 +99,6 @@ def start_runtime_services() -> bool:
             notification_enabled = check_notification_config()
             # setup_scheduler() が scheduler.start() まで担当する。
             setup_scheduler(notification_enabled)
-            preload_mlx_model()
-            preload_vml_model()
             warmup_stack_startup_message()
         except Exception:
             # scheduler 開始後の model preload 等で失敗した場合も後始末する。

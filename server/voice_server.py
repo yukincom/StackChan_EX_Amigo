@@ -7,6 +7,7 @@ require_secure_environment()
 
 import hashlib
 import os
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -25,6 +26,7 @@ from voice_server.tts_voicevox import (
 )
 from voice_server.tts_kokoro import (
     kokoro_tts, split_text_by_lang, concat_wav_bytes,
+    preload_kokoro, unload_kokoro,
     KOKORO_VOICE_ENGLISH,
 )
 from voice_server.cache_manager import check_cache, VOICE_STORAGE_DIR, get_cache_path
@@ -114,6 +116,18 @@ def generate():
 
 
 # ── 英語TTS（Kokoro）────────────────────────────────────
+@app.route("/kokoro/load", methods=["POST"])
+def kokoro_load():
+    threading.Thread(target=preload_kokoro, daemon=True, name="kokoro-preload").start()
+    return jsonify({"success": True, "action": "loading"})
+
+
+@app.route("/kokoro/unload", methods=["POST"])
+def kokoro_unload():
+    unloaded = unload_kokoro()
+    return jsonify({"success": True, "unloaded": unloaded})
+
+
 @app.route("/generate_en", methods=["POST"])
 def generate_en():
     try:

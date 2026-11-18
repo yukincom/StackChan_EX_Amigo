@@ -6,9 +6,11 @@ app.py 起動時に preload_vml_model() を呼んでウォームアップ。
 """
 from __future__ import annotations
 
+import gc
 import logging
 import os
 import re
+import sys
 import threading
 import time
 from pathlib import Path
@@ -19,14 +21,77 @@ VLM_MODEL = os.getenv(
     "VLM_MODEL",
     "lmstudio-community/Qwen3-VL-8B-Instruct-MLX-4bit",
 )
+VLM_IDLE_UNLOAD_SECONDS = float(os.getenv("VLM_IDLE_UNLOAD_SECONDS", "300"))
 
 _model = None
 _processor = None
 _model_config = None
 _load_lock = threading.Lock()
 _infer_lock = threading.Lock()
+_timer_lock = threading.Lock()
+_unload_timer: threading.Timer | None = None
 _loading = False
 _last_error: str | None = None
+
+
+def _clear_mlx_cache() -> None:
+    """MLXのMetalメモリキャッシュを解放する（未ロード時は何もしない）。"""
+    mx = sys.modules.get("mlx.core")
+    if mx is None:
+        return
+    clear_fn = getattr(mx, "clear_cache", None) or getattr(
+        getattr(mx, "metal", None), "clear_cache", None
+    )
+    if callable(clear_fn):
+        try:
+            clear_fn()
+        except Exception:
+            logger.debug("[VLM] clear_cache failed", exc_info=True)
+
+
+def _cancel_unload_timer() -> None:
+    global _unload_timer
+    with _timer_lock:
+        if _unload_timer is not None:
+            _unload_timer.cancel()
+            _unload_timer = None
+
+
+def _schedule_unload_timer(delay_seconds: float | None = None) -> None:
+    global _unload_timer
+    delay = VLM_IDLE_UNLOAD_SECONDS if delay_seconds is None else delay_seconds
+    with _timer_lock:
+        if _unload_timer is not None:
+            _unload_timer.cancel()
+            _unload_timer = None
+        if delay <= 0:
+            return
+        timer = threading.Timer(delay, unload_vlm_model)
+        timer.daemon = True
+        timer.name = "vlm-idle-unload"
+        _unload_timer = timer
+        timer.start()
+
+
+def unload_vlm_model() -> bool:
+    """ロード済みVLMモデルを解放し、メモリとMetalキャッシュを回収する。"""
+    global _model, _processor, _model_config
+    _cancel_unload_timer()
+    with _infer_lock:
+        with _load_lock:
+            was_loaded = (
+                _model is not None
+                or _processor is not None
+                or _model_config is not None
+            )
+            _model = None
+            _processor = None
+            _model_config = None
+    if was_loaded:
+        gc.collect()
+        _clear_mlx_cache()
+        logger.info("[VLM] Unloaded model after idle timeout")
+    return was_loaded
 
 
 def _strip_thinking(text: str) -> str:
@@ -156,12 +221,15 @@ def analyze_image(image_path: str, user_context: str = "") -> str | None:
         logger.error("[VLM] image missing: %s", image_path)
         return None
 
-    if not _ensure_loaded():
-        logger.error("[VLM] model not ready (last_error=%s)", _last_error)
-        return None
+    _cancel_unload_timer()
 
     # 推論は1本に直列化（並行 generate でハング・メモリ枯渇しやすい）
     with _infer_lock:
+        _cancel_unload_timer()
+        if not _ensure_loaded():
+            logger.error("[VLM] model not ready (last_error=%s)", _last_error)
+            return None
+
         try:
             from mlx_vlm import generate
             from mlx_vlm.prompt_utils import apply_chat_template
@@ -220,3 +288,6 @@ def analyze_image(image_path: str, user_context: str = "") -> str | None:
                 exc_info=True,
             )
             return None
+        finally:
+            if _model is not None or _processor is not None:
+                _schedule_unload_timer()

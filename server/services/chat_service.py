@@ -18,6 +18,7 @@ from ai_handler import (
     set_english_mode,
 )
 from services.voice_cache_catalog import get_pc_cache_text
+import services.voice_service as _voice_service
 from services.voice_service import build_push_audio_url, generate_voice_mixed, push_to_m5stack
 from services.weather_service import get_weather_response
 from member_loader import (
@@ -335,12 +336,14 @@ def process_chat(
     # チャットを処理
     if any(kw in user_text for kw in ["イングリッシュモード", "イングイッシュモード", "英語モード", "えいごもーど"]):
         set_english_mode(True)
+        getattr(_voice_service, "set_voice_server_english_mode", lambda _enabled: None)(True)
         ai_response = get_pc_cache_text("ok_english", "OK! Let's speak English!")
         return _build_voice_response(
             ai_response, user_text, speaker, speaker_label, generate_voice_flag, master_label
         )
     if any(kw in user_text.lower() for kw in ["japanese mode", "japanese modo", "日本語モード", "にほんごもーど"]):
         set_english_mode(False)
+        getattr(_voice_service, "set_voice_server_english_mode", lambda _enabled: None)(False)
         ai_response = get_pc_cache_text("ok_japanese", "わかった！日本語に戻るね！")
         return _build_voice_response(
             ai_response, user_text, speaker, speaker_label, generate_voice_flag, master_label
