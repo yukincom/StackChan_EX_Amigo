@@ -49,8 +49,6 @@ def test_runtime_services_are_idempotent(monkeypatch):
     monkeypatch.setattr(app_module, "_init_last_message_id", lambda: calls.append("discord"))
     monkeypatch.setattr(app_module, "check_notification_config", lambda: True)
     monkeypatch.setattr(app_module, "setup_scheduler", lambda enabled: calls.append(f"scheduler:{enabled}"))
-    monkeypatch.setattr(app_module, "preload_mlx_model", lambda: calls.append("llm"))
-    monkeypatch.setattr(app_module, "preload_vml_model", lambda: calls.append("vlm"))
     monkeypatch.setattr(app_module, "warmup_stack_startup_message", lambda: calls.append("voice"))
     monkeypatch.setattr(app_module, "stop_scheduler", lambda: calls.append("stop"))
     monkeypatch.setattr(app_module, "_recover_operation_journal", lambda: calls.append("recover"))
@@ -61,7 +59,7 @@ def test_runtime_services_are_idempotent(monkeypatch):
     assert app_module.start_runtime_services() is True
     assert app_module.start_runtime_services() is False
     assert calls == [
-        "recover", "vision", "delivery", "batch", "discord", "scheduler:True", "llm", "vlm", "voice",
+        "recover", "vision", "delivery", "batch", "discord", "scheduler:True", "voice",
     ]
 
     assert app_module.stop_runtime_services() is True
