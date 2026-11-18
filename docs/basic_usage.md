@@ -24,9 +24,9 @@ StackChan_EX_Amigo では、AI_StackChan_Ex をベースに、ローカル serve
 2. このリポジトリを clone する
 3. `server/json_example/` を `server/json/` にコピーする
 4. `.env.example` を `~/env/.env` にコピーして編集する
-5. `server/voice_server.py` と `server/app.py` を起動する
+5. [READMEの実行環境](../README.md#4-実行環境を準備) に従って依存・モデルを用意し、VOICEVOX、`server/voice_server.py`、`server/app.py` を起動する
 6. `http://<server-ip>:5050/admin` を開き、Config UI で設定する（`ADMIN_TOKEN` が必要。未設定時は localhost のみ）
-7. firmware 側の `SC_ExConfig.yaml` で `base_url` を server に向ける
+7. SDカード上の `/app/AiStackChanEx/SC_ExConfig.yaml` で3か所の `base_url` を server に向ける
 8. PlatformIO で firmware をビルドして M5Stack に書き込む
 
 ## firmware 側の最小設定
@@ -53,6 +53,8 @@ stt:
   base_url: "http://<server-ip>:5050"
 ```
 
+`<server-ip>` はserverを動かす機器のLAN IPです。このAmigo serverでは `Local-model` と `alloy` は互換API用の仮の値で、実際のモデル・話者はserver側で選びます。
+
 ## 入力モード（CoreS3）
 
 1. 顔のタッチ領域を2秒長押しする
@@ -61,15 +63,15 @@ stt:
 
 `タッチ` は従来どおり一回ずつ会話します。`いつでも` は顔へ毎回触れたりウェイクワードを言ったりせず、続けて会話できます。StackChanが話している途中の割込みには対応していません。
 
-`いつでも`を使うには、上記の音声設定と対応serverが必要です。詳しくは [入力モード（ドラフト）](input-modes.md) を参照してください。
+`いつでも`を使うには、上記の音声設定、whisper.cpp用のSilero VADモデル、会話event v2に対応したserverが必要です。詳しくは [入力モード](input-modes.md) を参照してください。
 
-### 3. ConfigUI 設定
+## ConfigUI 設定
 
-Config UI の詳細は server.md を参照してください。
+Config UI の詳細は [server連携](server.md#6-config-ui) を参照してください。
 
-http://<server-ip>:5050/admin
+`http://<server-ip>:5050/admin`
 
-### 3.3. Vision / カメラ連携（CoreS3のみ）
+## Vision / カメラ連携（CoreS3のみ）
 
 `StackChan_EX_Amigo` では、カメラは `server` と連携します。主な使い方は次のとおりです。
 

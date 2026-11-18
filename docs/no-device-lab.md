@@ -135,7 +135,7 @@ python3 -m tools.stackchan_lab serve-device \
 
 制御 endpoint はローカル検証専用です。
 
-仮想端末は既定で撮影modeを送る改修版を再現します。未Flashの旧版を再現する場合は
+仮想端末は既定で撮影modeを送る現行ソースの動作を再現します。撮影modeを送らない旧版を再現する場合は
 `serve-device` に `--legacy-camera-upload` を追加してください。既存の
 `--camera-upload-v2` も互換用に受け付けます。
 
@@ -183,7 +183,7 @@ python3 -m tools.stackchan_lab snapshot restore \
 - symlink、`..`、絶対 path、manifest 外 payload、hash/size 不一致を拒否します。
 - restore は既存運用 directory を上書きせず、新規または空 directory だけを対象にします。検証後に人間が差分を見て切り替えます。
 
-## 現在固定している既知差分
+## 撮影modeの契約と旧版互換
 
 撮影modeの欠落は本改修のソースで修正しました。`/vision/upload` の任意query `mode` を
 `archive` / `transient` として送り、serverの受付→private spool→handlerへ引き継ぎます。
@@ -193,7 +193,7 @@ python3 -m tools.stackchan_lab snapshot restore \
 - 明示modeが発話中のキーワードより優先します。空文字・未知値は `transient`。
 - 完全にmodeを省略した旧firmwareと、mode fieldのない旧spoolは、従来のキーワード判断を維持します。
 - `transient` は資料アーカイブを作らない意味です。明示的なカメラ会話の通常履歴や処理中の一時ファイルを禁止する意味ではありません。一時画像は従来どおり成功・失敗後に削除します。
-- この変更は未Flashです。シミュレータの成功は実機のカメラや通信を検証したことにはなりません。
+- シミュレータの成功は実機のカメラや通信を検証したことにはなりません。Flashと実機確認の記録は [FW-005](../doc/conversation-actions-2026-09-11.md) を参照してください。
 
 ## どこまで実機不要か
 

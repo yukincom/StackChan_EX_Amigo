@@ -1,5 +1,7 @@
 # Code Review: StackChan_EX_Amigo (full project)
 
+> この文書は日付付きの開発・検証記録です。本文の状態・モデル名・パス・件数は各記録時点のもので、現在の設定や未解決事項の一覧ではありません。現行の利用手順は [README](../README.md)、記録の位置づけは [開発記録一覧](README.md) を参照してください。
+
 **Date**: 2026-07-11  
 **Project root**: `/Users/yukin_co/AI_assistant/StacChan_EX_Amigo`  
 **Scope**: Independent full-project review (firmware + server + Copy-to-SD). Prior review (2026-07-02) consulted only for continuity.  
