@@ -33,7 +33,7 @@ jobs:
         run: .venv/bin/python -m pytest -p no:cacheprovider -q tests/unit/test_native_shutdown.py
 
   core-contracts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       PYTHONDONTWRITEBYTECODE: "1"
